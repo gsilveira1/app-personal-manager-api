@@ -1,0 +1,33 @@
+
+# Node.js
+dist/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# NestJS
+.env
+.env.test
+.env.production
+
+# Testing
+coverage/
+junit.xml
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# MacOS
+.DS_Store
+
+# Prisma
+# Keep migrations, but ignore other generated artifacts if any outside node_modules
+# (Usually generated client is in node_modules/@prisma/client)
+
+# Misc
+*.log
