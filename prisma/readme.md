@@ -10,3 +10,6 @@ npx prisma db seed
 
 Para fazer tudo de uma vez (Refresh):
 npm run db:refresh
+
+Run npx prisma generate to fix the client.
+Run npx tsc --noEmit (if available) or check if prisma/seed.ts shows no errors.

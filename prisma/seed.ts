@@ -1,5 +1,4 @@
-import { PrismaClient, ClientStatus, PaymentStatus, PaymentMethod } from '@prisma/client';
-import { addDays, subDays, subMonths } from 'date-fns';
+import { PrismaClient, ClientStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
