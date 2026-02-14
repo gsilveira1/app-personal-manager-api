@@ -1,0 +1,199 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Enums
+enum ClientStatus {
+  Active
+  Inactive
+  Lead
+}
+
+enum PaymentStatus {
+  Paid
+  Pending
+  Overdue
+}
+
+enum PaymentMethod {
+  CreditCard
+  Pix
+  Cash
+  Transfer
+}
+
+// --- Models ---
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   @default("user") // 'admin', 'trainer'
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos: O usuário é dono de tudo isso
+  clients      Client[]
+  sessions     Session[]
+  plans        Plan[]
+  products     Product[]
+  workoutPlans WorkoutPlan[]
+  settings     UserSetting[]
+}
+
+model Client {
+  id             String       @id @default(uuid())
+  name           String
+  email          String       @unique
+  phone          String
+  status         ClientStatus @default(Active)
+  type           String
+  goal           String?
+  avatar         String?
+  notes          String?
+  dateOfBirth    DateTime?
+  checkInFreq    String?
+  medicalHistory Json?
+  
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // Relacionamento com Plano
+  planId         String?
+  plan           Plan?        @relation(fields: [planId], references: [id])
+
+  // Relacionamento com Usuário (Dono do registro)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+
+  // Outros relacionamentos
+  sessions       Session[]
+  workouts       WorkoutPlan[]
+  finances       FinanceRecord[]
+  evaluations    Evaluation[]
+}
+
+model Plan {
+  id                     String   @id @default(uuid())
+  name                   String
+  sessionsPerWeek        Int
+  sessionDurationMinutes Int
+  pricePerSession        Float
+  
+  // Planos pertencem a um Usuário (Treinador)
+  userId                 String
+  user                   User     @relation(fields: [userId], references: [id])
+
+  clients                Client[]
+}
+
+model Product {
+  id       String  @id @default(uuid())
+  name     String
+  price    Float
+  category String
+
+  // Produtos pertencem a um Usuário (Treinador)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+}
+
+model Session {
+  id              String   @id @default(uuid())
+  date            DateTime
+  durationMinutes Int
+  type            String
+  category        String
+  completed       Boolean  @default(false)
+  notes           String?
+  recurrenceId    String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relacionamento com Cliente (Quem treinou)
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  // Relacionamento com Usuário (Responsável pela sessão/Treinador)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  
+  // Relacionamento com Treino
+  linkedWorkoutId String?
+  workout         WorkoutPlan? @relation(fields: [linkedWorkoutId], references: [id], onDelete: SetNull)
+}
+
+model WorkoutPlan {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  status      String   @default("Active")
+  tags        String[]
+  exercises   Json[]
+  
+  // Treinos pertencem a um Usuário (Treinador) - Obrigatório
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  // Treinos podem pertencer a um Cliente (Opcional - se for null, é um Template)
+  clientId    String?
+  client      Client?  @relation(fields: [clientId], references: [id])
+  
+  sessions    Session[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Evaluation {
+  id                String   @id @default(uuid())
+  date              DateTime
+  weight            Float
+  height            Float?
+  bodyFatPercentage Float?
+  leanMass          Float?
+  notes             String?
+  perimeters        Json?
+  skinfolds         Json?
+  
+  // Avaliações pertencem a um Cliente
+  clientId          String
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  
+  createdAt         DateTime @default(now())
+}
+
+model FinanceRecord {
+  id          String        @id @default(uuid())
+  amount      Float
+  date        DateTime
+  status      PaymentStatus @default(Pending)
+  method      PaymentMethod?
+  description String
+  type        String
+  relatedId   String?
+  
+  clientId    String
+  client      Client        @relation(fields: [clientId], references: [id])
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+// Configurações específicas por Usuário
+model UserSetting {
+  key    String
+  value  String
+  
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Chave composta: cada usuário pode ter sua própria chave 'ai_prompt', por exemplo.
+  @@id([userId, key])
+}
