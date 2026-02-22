@@ -10,6 +10,8 @@ import { SettingsModule } from './settings/settings.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { EvaluationsModule } from './evaluations/evaluations.module';
+import { LeadsModule } from './leads/leads.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -26,8 +28,10 @@ import { EvaluationsModule } from './evaluations/evaluations.module';
     WorkoutsModule,
     PlansModule,
     SettingsModule,
+    LeadsModule,
+    PaymentsModule,
   ],
   controllers: [],
   providers: [],
 })
-export class AppModule {}
+export class AppModule { }

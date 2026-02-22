@@ -7,12 +7,12 @@ import { UpdateClientDto } from './clients-update.dto';
 
 @Injectable()
 export class ClientsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async create(userId: string, data: CreateClientDto) {
     try {
-      const medicalHistoryInput = data.medicalHistory 
-        ? (data.medicalHistory as unknown as Prisma.InputJsonValue) 
+      const medicalHistoryInput = data.medicalHistory
+        ? (data.medicalHistory as unknown as Prisma.InputJsonValue)
         : undefined;
 
       return await this.prisma.client.create({
@@ -52,7 +52,7 @@ export class ClientsService {
     if (!client) {
       throw new NotFoundException(`Client #${id} not found`);
     }
-    
+
     // Verificação de Segurança
     if (client.userId !== userId) {
       throw new ForbiddenException('Acesso negado a este cliente');
@@ -64,9 +64,9 @@ export class ClientsService {
   async update(userId: string, id: string, data: UpdateClientDto) {
     await this.findOne(userId, id); // Garante existência e permissão
 
-    const medicalHistoryInput = data.medicalHistory 
-        ? (data.medicalHistory as unknown as Prisma.InputJsonValue) 
-        : undefined;
+    const medicalHistoryInput = data.medicalHistory
+      ? (data.medicalHistory as unknown as Prisma.InputJsonValue)
+      : undefined;
 
     return this.prisma.client.update({
       where: { id },
@@ -81,6 +81,24 @@ export class ClientsService {
     await this.findOne(userId, id); // Garante existência e permissão
     return this.prisma.client.delete({
       where: { id },
+    });
+  }
+
+  async findLeads(userId: string) {
+    return this.prisma.client.findMany({
+      where: { userId, status: 'Lead' },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async convertLead(userId: string, id: string, planId?: string) {
+    await this.findOne(userId, id); // Ensures existence and ownership
+    return this.prisma.client.update({
+      where: { id },
+      data: {
+        status: 'Active',
+        ...(planId ? { planId } : {}),
+      },
     });
   }
 }

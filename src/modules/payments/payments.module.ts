@@ -1,12 +1,15 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
+import { ConfigModule } from '@nestjs/config';
+
+import { PrismaModule } from '../prisma/prisma.module';
 import { PaymentsService } from './payments.service';
-// Controller opcional se quiser expor endpoints diretos de pagamento
-// import { PaymentsController } from './payments.controller';
+import { PaymentsController } from './payments.controller';
 
 @Module({
-  imports: [HttpModule],
+  imports: [HttpModule, PrismaModule, ConfigModule],
+  controllers: [PaymentsController],
   providers: [PaymentsService],
-  exports: [PaymentsService], // Exporta para ser usado no FinancesModule
+  exports: [PaymentsService],
 })
-export class PaymentsModule {}
+export class PaymentsModule { }
