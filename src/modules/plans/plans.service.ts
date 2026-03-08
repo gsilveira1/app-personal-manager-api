@@ -8,8 +8,8 @@ export class PlansService {
   constructor(private prisma: PrismaService) {}
 
   async create(userId: string, data: CreatePlanDto) {
-    return this.prisma.plan.create({ 
-      data: { ...data, userId } 
+    return this.prisma.plan.create({
+      data: { ...data, userId },
     });
   }
 
@@ -37,5 +37,41 @@ export class PlansService {
   async remove(userId: string, id: string) {
     await this.findOne(userId, id);
     return this.prisma.plan.delete({ where: { id } });
+  }
+
+  async findPublicByTrainer(trainerId: string) {
+    const plans = await this.prisma.plan.findMany({
+      where: { userId: trainerId, active: true },
+      select: {
+        id: true,
+        type: true,
+        name: true,
+        sessionsPerWeek: true,
+        durationMinutes: true,
+        price: true,
+      },
+    });
+
+    const presencial = plans
+      .filter((p) => p.type === 'PRESENCIAL')
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        sessionsPerWeek: p.sessionsPerWeek,
+        sessionsPerMonth: p.sessionsPerWeek * 4,
+        durationMinutes: p.durationMinutes,
+        price: p.price,
+      }));
+
+    const consultoria = plans
+      .filter((p) => p.type === 'CONSULTORIA')
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        sessionsPerWeek: p.sessionsPerWeek,
+        price: p.price,
+      }));
+
+    return { presencial, consultoria };
   }
 }

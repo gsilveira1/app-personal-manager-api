@@ -1,18 +1,28 @@
-import { IsString, IsInt, IsNumber, Min } from 'class-validator';
+import { IsString, IsInt, IsNumber, IsOptional, IsBoolean, IsIn, Min, Max } from 'class-validator';
 
 export class CreatePlanDto {
+  @IsString()
+  @IsIn(['PRESENCIAL', 'CONSULTORIA'])
+  type!: 'PRESENCIAL' | 'CONSULTORIA';
+
   @IsString()
   name!: string;
 
   @IsInt()
   @Min(1)
+  @Max(6)
   sessionsPerWeek!: number;
 
+  @IsOptional()
   @IsInt()
-  @Min(15)
-  sessionDurationMinutes!: number;
+  @IsIn([30, 45, 60, 90])
+  durationMinutes?: number;
 
   @IsNumber()
   @Min(0)
-  pricePerSession!: number;
+  price!: number;
+
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
 }

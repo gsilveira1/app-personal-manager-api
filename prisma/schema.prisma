@@ -13,19 +13,6 @@ enum ClientStatus {
   Lead
 }
 
-enum PaymentStatus {
-  Paid
-  Pending
-  Overdue
-}
-
-enum PaymentMethod {
-  CreditCard
-  Pix
-  Cash
-  Transfer
-}
-
 // --- Models ---
 
 model User {
@@ -38,12 +25,12 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos: O usuário é dono de tudo isso
-  clients      Client[]
-  sessions     Session[]
-  plans        Plan[]
-  products     Product[]
-  workoutPlans WorkoutPlan[]
-  settings     UserSetting[]
+  clients         Client[]
+  sessions        Session[]
+  recurringEvents RecurringEvent[]
+  plans           Plan[]
+  workoutPlans    WorkoutPlan[]
+  settings        UserSetting[]
 }
 
 model Client {
@@ -59,51 +46,43 @@ model Client {
   dateOfBirth    DateTime?
   checkInFreq    String?
   medicalHistory Json?
-  
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamento com Plano
+  planId String?
+  plan   Plan?   @relation(fields: [planId], references: [id])
+
+  // Relacionamento com Usuário (Dono do registro)
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Outros relacionamentos
+  sessions        Session[]
+  recurringEvents RecurringEvent[]
+  workouts        WorkoutPlan[]
+  evaluations     Evaluation[]
 
   @@index([userId])
   @@index([status])
-
-  // Relacionamento com Plano
-  planId         String?
-  plan           Plan?        @relation(fields: [planId], references: [id])
-
-  // Relacionamento com Usuário (Dono do registro)
-  userId         String
-  user           User         @relation(fields: [userId], references: [id])
-
-  // Outros relacionamentos
-  sessions       Session[]
-  workouts       WorkoutPlan[]
-  finances       FinanceRecord[]
-  evaluations    Evaluation[]
 }
 
 model Plan {
-  id                     String   @id @default(uuid())
-  name                   String
-  sessionsPerWeek        Int
-  sessionDurationMinutes Int
-  pricePerSession        Float
-  
+  id              String   @id @default(uuid())
+  type            String // 'PRESENCIAL' | 'CONSULTORIA'
+  name            String // e.g., "Hipertrofia 2x na Semana (60min)"
+  sessionsPerWeek Int // 1–6 for PRESENCIAL, 1–2 for CONSULTORIA
+  durationMinutes Int? // 30, 45, 60, 90 (null for CONSULTORIA)
+  price           Float
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
   // Planos pertencem a um Usuário (Treinador)
-  userId                 String
-  user                   User     @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  clients                Client[]
-}
-
-model Product {
-  id       String  @id @default(uuid())
-  name     String
-  price    Float
-  category String
-
-  // Produtos pertencem a um Usuário (Treinador)
-  userId   String
-  user     User   @relation(fields: [userId], references: [id])
+  clients Client[]
 }
 
 model Session {
@@ -115,24 +94,24 @@ model Session {
   completed       Boolean  @default(false)
   notes           String?
   recurrenceId    String?
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
 
-  @@index([userId, date])
-  @@index([clientId])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relacionamento com Cliente (Quem treinou)
-  clientId        String
-  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   // Relacionamento com Usuário (Responsável pela sessão/Treinador)
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
-  
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
   // Relacionamento com Treino
   linkedWorkoutId String?
   workout         WorkoutPlan? @relation(fields: [linkedWorkoutId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([clientId])
 }
 
 model WorkoutPlan {
@@ -142,19 +121,19 @@ model WorkoutPlan {
   status      String   @default("Active")
   tags        String[]
   exercises   Json[]
-  
+
   // Treinos pertencem a um Usuário (Treinador) - Obrigatório
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
   // Treinos podem pertencer a um Cliente (Opcional - se for null, é um Template)
-  clientId    String?
-  client      Client?  @relation(fields: [clientId], references: [id])
-  
-  sessions    Session[]
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
+
+  sessions Session[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([clientId])
@@ -170,43 +149,81 @@ model Evaluation {
   notes             String?
   perimeters        Json?
   skinfolds         Json?
-  
+
   // Avaliações pertencem a um Cliente
-  clientId          String
-  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  
-  createdAt         DateTime @default(now())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
 
   @@index([clientId])
 }
 
-model FinanceRecord {
-  id          String        @id @default(uuid())
-  amount      Float
-  date        DateTime
-  status      PaymentStatus @default(Pending)
-  method      PaymentMethod?
-  description String
-  type        String
-  relatedId   String?
-  
-  clientId    String
-  client      Client        @relation(fields: [clientId], references: [id])
-  
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-
-  @@index([clientId, status])
-}
-
 // Configurações específicas por Usuário
 model UserSetting {
-  key    String
-  value  String
-  
+  key   String
+  value String
+
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
   // Chave composta: cada usuário pode ter sua própria chave 'ai_prompt', por exemplo.
   @@id([userId, key])
+}
+
+// ---
+// RFC 5545-based recurrence (Google Calendar model)
+// ---
+
+model RecurringEvent {
+  id              String   @id @default(uuid())
+  /// Full RRULE string, e.g. "FREQ=WEEKLY;BYDAY=MO,WE;COUNT=12"
+  rrule           String
+  /// TZID used when expanding the rule, e.g. "America/Sao_Paulo"
+  timezone        String   @default("America/Sao_Paulo")
+  /// ISO datetime of the first occurrence (DTSTART)
+  dtstart         DateTime
+  durationMinutes Int
+  type            String // "In-Person" | "Online"
+  category        String // "Workout" | "Check-in" | "Evaluation"
+  notes           String?
+  linkedWorkoutId String?
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+
+  exceptions SessionException[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([clientId])
+}
+
+model SessionException {
+  id String @id @default(uuid())
+
+  /// The computed start time this exception replaces
+  originalStartTime DateTime
+
+  /// true = this occurrence is cancelled (soft-delete)
+  cancelled Boolean @default(false)
+
+  /// Overrides (only relevant when cancelled = false)
+  newStartTime    DateTime?
+  durationMinutes Int?
+  notes           String?
+  completed       Boolean   @default(false)
+
+  recurringEventId String
+  recurringEvent   RecurringEvent @relation(fields: [recurringEventId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([recurringEventId, originalStartTime])
+  @@index([recurringEventId])
 }
