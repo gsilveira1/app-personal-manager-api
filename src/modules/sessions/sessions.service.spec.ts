@@ -99,6 +99,25 @@ describe('SessionsService', () => {
         service.create(userId, { clientId, date: '2025-02-01', durationMinutes: 60, type: 'In-Person', category: 'Workout' } as any),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it('should succeed when client is not found (null)', async () => {
+      prisma.client.findUnique.mockResolvedValue(null);
+      prisma.session.create.mockResolvedValue(mockSession);
+
+      const dto = {
+        date: '2025-02-01T10:00:00Z',
+        durationMinutes: 60,
+        type: 'In-Person',
+        category: 'Workout',
+        clientId: 'non-existent',
+      };
+      const result = await service.create(userId, dto as any);
+
+      expect(prisma.session.create).toHaveBeenCalledWith({
+        data: { ...dto, userId },
+      });
+      expect(result.id).toBe(sessionId);
+    });
   });
 
   describe('createRecurring (legacy)', () => {
@@ -207,6 +226,29 @@ describe('SessionsService', () => {
         },
       });
       expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('should shift dates by timeDiff when data.date is provided with scope future', async () => {
+      const recurrenceId = 'rec-456';
+      const targetSession = { ...mockSession, recurrenceId, date: new Date('2025-02-01T10:00:00Z') };
+      const futureSession1 = { ...mockSession, id: 'session-2', recurrenceId, date: new Date('2025-02-08T10:00:00Z') };
+      const futureSession2 = { ...mockSession, id: 'session-3', recurrenceId, date: new Date('2025-02-15T10:00:00Z') };
+
+      prisma.session.findUnique.mockResolvedValue(targetSession);
+      prisma.session.findMany.mockResolvedValue([targetSession, futureSession1, futureSession2]);
+      prisma.session.update.mockImplementation((args: any) => Promise.resolve({ id: args.where.id, ...args.data }));
+
+      // Shift 2 hours later (10:00 → 12:00)
+      await service.updateWithScope(userId, sessionId, { date: '2025-02-01T12:00:00Z' } as any, 'future');
+
+      expect(prisma.$transaction).toHaveBeenCalled();
+      const updateCalls = prisma.session.update.mock.calls;
+      expect(updateCalls).toHaveLength(3);
+
+      // Each session shifted by +2 hours
+      expect(updateCalls[0][0].data.date).toEqual(new Date('2025-02-01T12:00:00Z'));
+      expect(updateCalls[1][0].data.date).toEqual(new Date('2025-02-08T12:00:00Z'));
+      expect(updateCalls[2][0].data.date).toEqual(new Date('2025-02-15T12:00:00Z'));
     });
   });
 
@@ -428,6 +470,47 @@ describe('SessionsService', () => {
       expect(result).toEqual([]);
     });
 
+    it('should combine occurrences from multiple recurring events', async () => {
+      const event1 = {
+        id: 'event-1',
+        rrule: 'FREQ=WEEKLY;BYDAY=MO;COUNT=2',
+        dtstart: new Date('2025-01-06T10:00:00Z'),
+        durationMinutes: 60,
+        type: 'In-Person',
+        category: 'Workout',
+        notes: null,
+        clientId,
+        userId,
+        linkedWorkoutId: null,
+        exceptions: [],
+      };
+      const event2 = {
+        id: 'event-2',
+        rrule: 'FREQ=WEEKLY;BYDAY=WE;COUNT=2',
+        dtstart: new Date('2025-01-08T14:00:00Z'),
+        durationMinutes: 45,
+        type: 'Online',
+        category: 'Workout',
+        notes: null,
+        clientId,
+        userId,
+        linkedWorkoutId: null,
+        exceptions: [],
+      };
+      prisma.recurringEvent.findMany.mockResolvedValue([event1, event2]);
+
+      const result = await service.materializeRecurringSessionsForRange(
+        userId,
+        new Date('2025-01-01'),
+        new Date('2025-01-31'),
+      );
+
+      // event1: 2 Mondays (Jan 6, 13), event2: 2 Wednesdays (Jan 8, 15)
+      expect(result).toHaveLength(4);
+      expect(result.filter(s => s.recurringEventId === 'event-1')).toHaveLength(2);
+      expect(result.filter(s => s.recurringEventId === 'event-2')).toHaveLength(2);
+    });
+
     it('should skip malformed RRULE strings gracefully', async () => {
       const event = {
         id: 'event-bad',
@@ -534,6 +617,31 @@ describe('SessionsService', () => {
       expect(result[0].id).toBe(sessionId);
     });
 
+    it('should merge legacy and virtual sessions in combined result', async () => {
+      prisma.session.findMany.mockResolvedValue([mockSession]);
+
+      const event = {
+        id: 'event-1',
+        rrule: 'FREQ=WEEKLY;BYDAY=MO;COUNT=2',
+        dtstart: new Date('2025-01-06T10:00:00Z'),
+        durationMinutes: 60,
+        type: 'In-Person',
+        category: 'Workout',
+        notes: null,
+        clientId,
+        userId,
+        linkedWorkoutId: null,
+        exceptions: [],
+      };
+      prisma.recurringEvent.findMany.mockResolvedValue([event]);
+
+      const result = await service.findAllForRange(userId, new Date('2025-01-01'), new Date('2025-01-31'));
+
+      // 1 legacy + 2 virtual = 3
+      expect(result).toHaveLength(3);
+      expect(result.filter((s: any) => s.isVirtual)).toHaveLength(2);
+    });
+
     it('should gracefully handle P2021 (table not exist) error', async () => {
       prisma.session.findMany.mockResolvedValue([mockSession]);
       prisma.recurringEvent.findMany.mockRejectedValue({ code: 'P2021' });
@@ -576,6 +684,19 @@ describe('SessionsService', () => {
       const times = result.map((s: any) => s.time);
       expect(times).not.toContain('10:00');
       expect(result.length).toBe(12);
+    });
+
+    it('should return slots for multiple days in range', async () => {
+      prisma.session.findMany.mockResolvedValue([]);
+      prisma.recurringEvent.findMany.mockResolvedValue([]);
+
+      // Mon Jan 6 to Wed Jan 8, 2025 (3 weekdays)
+      const start = new Date(2025, 0, 6);
+      const end = new Date(2025, 0, 8);
+      const result = await service.findAvailableSlots(userId, start, end);
+
+      // 3 weekdays × 13 slots each = 39
+      expect(result.length).toBe(39);
     });
 
     it('should skip Sundays', async () => {

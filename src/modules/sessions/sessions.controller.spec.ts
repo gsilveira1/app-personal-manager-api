@@ -157,4 +157,53 @@ describe('SessionsController', () => {
       expect(service.removeRecurringEvent).toHaveBeenCalledWith('trainer-uuid-1', 'event-1');
     });
   });
+
+  describe('GET /:id (findOne)', () => {
+    it('should delegate to service.findOne with userId and id', async () => {
+      service.findOne!.mockResolvedValue({ id: 'sess-1' } as any);
+
+      const result = await controller.findOne(req as any, 'sess-1');
+
+      expect(service.findOne).toHaveBeenCalledWith('trainer-uuid-1', 'sess-1');
+      expect(result).toEqual({ id: 'sess-1' });
+    });
+  });
+
+  describe('GET /available (getAvailableSlots)', () => {
+    it('should return [] when TRAINER_USER_ID is not set', async () => {
+      const result = await controller.getAvailableSlots('2025-03-01', '2025-03-31');
+
+      expect(result).toEqual([]);
+      expect(service.findAvailableSlots).not.toHaveBeenCalled();
+    });
+
+    it('should delegate to findAvailableSlots when TRAINER_USER_ID is set', async () => {
+      const originalEnv = process.env.TRAINER_USER_ID;
+      process.env.TRAINER_USER_ID = 'trainer-public-uuid';
+      jest.resetModules();
+
+      // Re-require with fresh module-level TRAINER_USER_ID
+      const { SessionsController: FreshController } = require('./sessions.controller');
+      const { SessionsService: FreshService } = require('./sessions.service');
+
+      const freshService = { findAvailableSlots: jest.fn().mockResolvedValue([{ date: '2025-03-03', time: '10:00' }]) };
+      const mod = await Test.createTestingModule({
+        controllers: [FreshController],
+        providers: [{ provide: FreshService, useValue: freshService }],
+      }).compile();
+
+      const freshController = mod.get(FreshController);
+      const result = await freshController.getAvailableSlots('2025-03-01', '2025-03-31');
+
+      expect(freshService.findAvailableSlots).toHaveBeenCalledWith(
+        'trainer-public-uuid',
+        expect.any(Date),
+        expect.any(Date),
+      );
+      expect(result).toHaveLength(1);
+
+      process.env.TRAINER_USER_ID = originalEnv;
+      jest.resetModules();
+    });
+  });
 });

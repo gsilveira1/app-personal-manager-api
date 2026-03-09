@@ -2,12 +2,16 @@ import { Injectable, ConflictException, NotFoundException, ForbiddenException } 
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { GcsService } from '../gcs/gcs.service';
 import { CreateClientDto } from './clients-create.dto';
 import { UpdateClientDto } from './clients-update.dto';
 
 @Injectable()
 export class ClientsService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private gcs: GcsService,
+  ) { }
 
   async create(userId: string, data: CreateClientDto) {
     try {
@@ -100,5 +104,14 @@ export class ClientsService {
         ...(planId ? { planId } : {}),
       },
     });
+  }
+
+  async generateAvatarUploadUrl(userId: string, clientId: string, contentType: string) {
+    await this.findOne(userId, clientId); // Ensures existence and ownership
+
+    const ext = contentType.split('/')[1];
+    const objectPath = `avatars/${userId}/${clientId}.${ext}`;
+
+    return this.gcs.generateSignedUploadUrl(objectPath, contentType);
   }
 }

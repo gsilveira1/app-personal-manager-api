@@ -5,6 +5,7 @@ import { ClientsService } from './clients.service';
 import { CreateClientDto } from './clients-create.dto';
 import { UpdateClientDto } from './clients-update.dto';
 import { ConvertLeadDto } from './convert-lead.dto';
+import { AvatarUploadDto } from './avatar-upload.dto';
 import { RequestWithUser } from '../../types/global';
 
 @UseGuards(AuthGuard('jwt'))
@@ -46,6 +47,15 @@ export class ClientsController {
     @Body() convertLeadDto: ConvertLeadDto,
   ) {
     return this.clientsService.convertLead(req.user.userId, id, convertLeadDto.planId);
+  }
+
+  @Post(':id/avatar-upload-url')
+  generateAvatarUploadUrl(
+    @Request() req: RequestWithUser,
+    @Param('id') id: string,
+    @Body() dto: AvatarUploadDto,
+  ) {
+    return this.clientsService.generateAvatarUploadUrl(req.user.userId, id, dto.contentType);
   }
 
   @Delete(':id')

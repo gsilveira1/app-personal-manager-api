@@ -24,6 +24,91 @@ describe('SettingsService', () => {
     jest.clearAllMocks();
   });
 
+  // ─── getAiInstructions ───────────────────────────────────────────────────────
+
+  describe('getAiInstructions', () => {
+    it('returns stored instructions when row exists', async () => {
+      mockPrismaService.userSetting.findUnique.mockResolvedValue({
+        userId: 'u1',
+        key: 'ai_prompt_instructions',
+        value: 'Be concise and focus on hypertrophy.',
+      });
+
+      const result = await service.getAiInstructions('u1');
+      expect(result).toEqual({ instructions: 'Be concise and focus on hypertrophy.' });
+    });
+
+    it('returns empty string when no row exists', async () => {
+      mockPrismaService.userSetting.findUnique.mockResolvedValue(null);
+
+      const result = await service.getAiInstructions('u1');
+      expect(result).toEqual({ instructions: '' });
+    });
+
+    it('calls findUnique with correct composite key', async () => {
+      mockPrismaService.userSetting.findUnique.mockResolvedValue(null);
+
+      await service.getAiInstructions('user-456');
+      expect(mockPrismaService.userSetting.findUnique).toHaveBeenCalledWith({
+        where: { userId_key: { userId: 'user-456', key: 'ai_prompt_instructions' } },
+      });
+    });
+
+    it('bubbles up Prisma errors without masking', async () => {
+      const dbError = new Error('DB connection failed');
+      mockPrismaService.userSetting.findUnique.mockRejectedValue(dbError);
+
+      await expect(service.getAiInstructions('u1')).rejects.toThrow('DB connection failed');
+    });
+  });
+
+  // ─── updateAiInstructions ─────────────────────────────────────────────────
+
+  describe('updateAiInstructions', () => {
+    it('upserts with create payload on first write', async () => {
+      mockPrismaService.userSetting.upsert.mockResolvedValue({
+        userId: 'u1',
+        key: 'ai_prompt_instructions',
+        value: 'Focus on rehabilitation.',
+      });
+
+      const result = await service.updateAiInstructions('u1', 'Focus on rehabilitation.');
+
+      expect(mockPrismaService.userSetting.upsert).toHaveBeenCalledWith({
+        where: { userId_key: { userId: 'u1', key: 'ai_prompt_instructions' } },
+        update: { value: 'Focus on rehabilitation.' },
+        create: { userId: 'u1', key: 'ai_prompt_instructions', value: 'Focus on rehabilitation.' },
+      });
+      expect(result).toEqual({
+        userId: 'u1',
+        key: 'ai_prompt_instructions',
+        value: 'Focus on rehabilitation.',
+      });
+    });
+
+    it('is idempotent — calling twice with same value returns same result', async () => {
+      mockPrismaService.userSetting.upsert.mockResolvedValue({
+        userId: 'u1',
+        key: 'ai_prompt_instructions',
+        value: 'Be brief.',
+      });
+
+      const first = await service.updateAiInstructions('u1', 'Be brief.');
+      const second = await service.updateAiInstructions('u1', 'Be brief.');
+
+      expect(first.value).toBe('Be brief.');
+      expect(second.value).toBe('Be brief.');
+      expect(mockPrismaService.userSetting.upsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('bubbles up Prisma errors without masking', async () => {
+      const dbError = new Error('Unique constraint violation');
+      mockPrismaService.userSetting.upsert.mockRejectedValue(dbError);
+
+      await expect(service.updateAiInstructions('u1', 'test')).rejects.toThrow('Unique constraint violation');
+    });
+  });
+
   // ─── getLanguage ───────────────────────────────────────────────────────────
 
   describe('getLanguage', () => {

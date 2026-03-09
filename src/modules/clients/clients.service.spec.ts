@@ -3,10 +3,12 @@ import { ConflictException, NotFoundException, ForbiddenException } from '@nestj
 
 import { ClientsService } from './clients.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { GcsService } from '../gcs/gcs.service';
 
 describe('ClientsService', () => {
   let service: ClientsService;
   let prisma: any;
+  let gcs: any;
 
   const userId = 'trainer-uuid-1';
   const clientId = 'client-uuid-1';
@@ -35,10 +37,15 @@ describe('ClientsService', () => {
       },
     };
 
+    gcs = {
+      generateSignedUploadUrl: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClientsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: GcsService, useValue: gcs },
       ],
     }).compile();
 
@@ -240,6 +247,41 @@ describe('ClientsService', () => {
       prisma.client.findUnique.mockResolvedValue({ ...mockClient, userId: 'other-user' });
 
       await expect(service.convertLead(userId, clientId)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('generateAvatarUploadUrl', () => {
+    it('should return signed URL after ownership check', async () => {
+      prisma.client.findUnique.mockResolvedValue({ ...mockClient, plan: null, workouts: [] });
+      gcs.generateSignedUploadUrl.mockResolvedValue({
+        uploadUrl: 'https://storage.googleapis.com/signed-url',
+        publicUrl: `https://storage.googleapis.com/bucket/avatars/${userId}/${clientId}.jpeg`,
+      });
+
+      const result = await service.generateAvatarUploadUrl(userId, clientId, 'image/jpeg');
+
+      expect(gcs.generateSignedUploadUrl).toHaveBeenCalledWith(
+        `avatars/${userId}/${clientId}.jpeg`,
+        'image/jpeg',
+      );
+      expect(result.uploadUrl).toBeDefined();
+      expect(result.publicUrl).toContain(clientId);
+    });
+
+    it('should throw NotFoundException for non-existent client', async () => {
+      prisma.client.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.generateAvatarUploadUrl(userId, 'non-existent', 'image/png'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw ForbiddenException for unauthorized access', async () => {
+      prisma.client.findUnique.mockResolvedValue({ ...mockClient, userId: 'other-user' });
+
+      await expect(
+        service.generateAvatarUploadUrl(userId, clientId, 'image/png'),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

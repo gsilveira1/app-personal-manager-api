@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { EvaluationsModule } from './evaluations/evaluations.module';
 import { LeadsModule } from './leads/leads.module';
+import { GcsModule } from './gcs/gcs.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { LeadsModule } from './leads/leads.module';
     PlansModule,
     SettingsModule,
     LeadsModule,
+    GcsModule,
   ],
   controllers: [],
   providers: [],
