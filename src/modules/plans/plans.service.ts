@@ -8,8 +8,22 @@ export class PlansService {
   constructor(private prisma: PrismaService) {}
 
   async create(userId: string, data: CreatePlanDto) {
+    const { featureIds, ...planData } = data;
+
     return this.prisma.plan.create({
-      data: { ...data, userId },
+      data: {
+        ...planData,
+        userId,
+        ...(featureIds?.length && {
+          features: {
+            create: featureIds.map((featureId) => ({ featureId })),
+          },
+        }),
+      },
+      include: {
+        features: { include: { feature: true } },
+        _count: { select: { clients: true } },
+      },
     });
   }
 
@@ -17,13 +31,19 @@ export class PlansService {
     return this.prisma.plan.findMany({
       where: { userId },
       include: {
+        features: { include: { feature: true } },
         _count: { select: { clients: true } },
       },
     });
   }
 
   async findOne(userId: string, id: string) {
-    const plan = await this.prisma.plan.findUnique({ where: { id } });
+    const plan = await this.prisma.plan.findUnique({
+      where: { id },
+      include: {
+        features: { include: { feature: true } },
+      },
+    });
     if (!plan) throw new NotFoundException(`Plan #${id} not found`);
     if (plan.userId !== userId) throw new ForbiddenException();
     return plan;
@@ -31,7 +51,39 @@ export class PlansService {
 
   async update(userId: string, id: string, data: Partial<CreatePlanDto>) {
     await this.findOne(userId, id);
-    return this.prisma.plan.update({ where: { id }, data });
+
+    const { featureIds, ...planData } = data;
+
+    // If featureIds provided, replace all plan features atomically
+    if (featureIds !== undefined) {
+      return this.prisma.$transaction(async (tx) => {
+        await tx.planFeature.deleteMany({ where: { planId: id } });
+        return tx.plan.update({
+          where: { id },
+          data: {
+            ...planData,
+            ...(featureIds.length && {
+              features: {
+                create: featureIds.map((featureId) => ({ featureId })),
+              },
+            }),
+          },
+          include: {
+            features: { include: { feature: true } },
+            _count: { select: { clients: true } },
+          },
+        });
+      });
+    }
+
+    return this.prisma.plan.update({
+      where: { id },
+      data: planData,
+      include: {
+        features: { include: { feature: true } },
+        _count: { select: { clients: true } },
+      },
+    });
   }
 
   async remove(userId: string, id: string) {
@@ -49,6 +101,10 @@ export class PlansService {
         sessionsPerWeek: true,
         durationMinutes: true,
         price: true,
+        features: {
+          include: { feature: true },
+          where: { feature: { isActive: true } },
+        },
       },
     });
 
@@ -61,6 +117,10 @@ export class PlansService {
         sessionsPerMonth: p.sessionsPerWeek * 4,
         durationMinutes: p.durationMinutes,
         price: p.price,
+        features: p.features.map((pf) => ({
+          key: pf.feature.key,
+          name: pf.feature.name,
+        })),
       }));
 
     const consultoria = plans
@@ -70,6 +130,10 @@ export class PlansService {
         name: p.name,
         sessionsPerWeek: p.sessionsPerWeek,
         price: p.price,
+        features: p.features.map((pf) => ({
+          key: pf.feature.key,
+          name: pf.feature.name,
+        })),
       }));
 
     return { presencial, consultoria };

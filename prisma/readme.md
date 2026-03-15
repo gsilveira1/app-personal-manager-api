@@ -13,3 +13,5 @@ npm run db:refresh
 
 Run npx prisma generate to fix the client.
 Run npx tsc --noEmit (if available) or check if prisma/seed.ts shows no errors.
+
+run npx prisma db push to Pushes the current state of your Prisma schema directly to the database without creating a migration file. This is useful for prototyping and non-production environments.

@@ -1,4 +1,4 @@
-import { IsString, IsInt, IsNumber, IsOptional, IsBoolean, IsIn, Min, Max } from 'class-validator';
+import { IsString, IsInt, IsNumber, IsOptional, IsBoolean, IsIn, IsArray, IsUUID, Min, Max } from 'class-validator';
 
 export class CreatePlanDto {
   @IsString()
@@ -25,4 +25,9 @@ export class CreatePlanDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  featureIds?: string[];
 }

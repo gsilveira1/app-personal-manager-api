@@ -12,6 +12,7 @@ import { EvaluationsModule } from './evaluations/evaluations.module';
 import { LeadsModule } from './leads/leads.module';
 import { GcsModule } from './gcs/gcs.module';
 import { AvailabilityBlocksModule } from './availability-blocks/availability-blocks.module';
+import { SystemFeaturesModule } from './system-features/system-features.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { AvailabilityBlocksModule } from './availability-blocks/availability-blo
     LeadsModule,
     GcsModule,
     AvailabilityBlocksModule,
+    SystemFeaturesModule
   ],
   controllers: [],
   providers: [],
