@@ -7,9 +7,6 @@
 app            = "app-personal-manager-api"  # ← Replace with your actual fly app name
 primary_region = "gru"                        # São Paulo — closest to Brazil
 
-[build]
-  dockerfile = "dockerfile"
-
 [env]
   # Non-sensitive runtime config (safe to commit)
   NODE_ENV = "production"
