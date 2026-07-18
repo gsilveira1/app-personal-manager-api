@@ -2,7 +2,7 @@ import { Controller, Get, Put, Patch, Body, UseGuards, Request } from '@nestjs/c
 import { AuthGuard } from '@nestjs/passport';
 
 import { SettingsService } from './settings.service';
-import { UpdateAiInstructionsDto, UpdateLanguageDto } from './settings.dto';
+import { UpdateAiInstructionsDto, UpdateLanguageDto, UpdateWorkHoursDto } from './settings.dto';
 import { RequestWithUser } from '../../types/global';
 
 @UseGuards(AuthGuard('jwt'))
@@ -28,5 +28,15 @@ export class SettingsController {
   @Patch('language')
   updateLanguage(@Request() req: RequestWithUser, @Body() dto: UpdateLanguageDto) {
     return this.settingsService.updateLanguage(req.user.userId, dto.language);
+  }
+
+  @Get('work-hours')
+  getWorkHours(@Request() req: RequestWithUser) {
+    return this.settingsService.getWorkHours(req.user.userId);
+  }
+
+  @Put('work-hours')
+  updateWorkHours(@Request() req: RequestWithUser, @Body() dto: UpdateWorkHoursDto) {
+    return this.settingsService.updateWorkHours(req.user.userId, dto);
   }
 }

@@ -25,12 +25,13 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relacionamentos: O usuário é dono de tudo isso
-  clients         Client[]
-  sessions        Session[]
-  recurringEvents RecurringEvent[]
-  plans           Plan[]
-  workoutPlans    WorkoutPlan[]
-  settings        UserSetting[]
+  clients            Client[]
+  sessions           Session[]
+  recurringEvents    RecurringEvent[]
+  plans              Plan[]
+  workoutPlans       WorkoutPlan[]
+  settings           UserSetting[]
+  availabilityBlocks AvailabilityBlock[]
 }
 
 model Client {
@@ -82,7 +83,31 @@ model Plan {
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
-  clients Client[]
+  clients  Client[]
+  features PlanFeature[]
+}
+
+model SystemFeature {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  plans PlanFeature[]
+}
+
+model PlanFeature {
+  planId     String
+  featureId  String
+  assignedAt DateTime      @default(now())
+  plan       Plan          @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature    SystemFeature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+
+  @@id([planId, featureId])
+  @@index([featureId])
 }
 
 model Session {
@@ -226,4 +251,23 @@ model SessionException {
 
   @@unique([recurringEventId, originalStartTime])
   @@index([recurringEventId])
+}
+
+model AvailabilityBlock {
+  id       String   @id @default(uuid())
+  title    String                         // "Almoço", "Férias"
+  rrule    String?                        // null = one-off, else RFC 5545
+  timezone String   @default("America/Sao_Paulo")
+  dtstart  DateTime
+  dtend    DateTime                       // dtstart+dtend define the block window
+  notes    String?
+
+  userId   String
+  user     User     @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, dtstart])
 }
