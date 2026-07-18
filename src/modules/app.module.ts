@@ -11,6 +11,7 @@ import { UsersModule } from './users/users.module';
 import { EvaluationsModule } from './evaluations/evaluations.module';
 import { LeadsModule } from './leads/leads.module';
 import { GcsModule } from './gcs/gcs.module';
+import { AvailabilityBlocksModule } from './availability-blocks/availability-blocks.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { GcsModule } from './gcs/gcs.module';
     SettingsModule,
     LeadsModule,
     GcsModule,
+    AvailabilityBlocksModule,
   ],
   controllers: [],
   providers: [],

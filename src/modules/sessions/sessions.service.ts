@@ -5,10 +5,11 @@ import {
 } from '@nestjs/common';
 import { addDays, parseISO } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
-// rrule.js — RFC 5545 expansion engine
-import { RRule, RRuleSet, rrulestr } from 'rrule';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { SettingsService, type WorkHoursConfig } from '../settings/settings.service';
+import { AvailabilityBlocksService } from '../availability-blocks/availability-blocks.service';
+import { expandRRuleForRange } from '../../utils/rrule-expander';
 import { CreateSessionDto, UpdateSessionDto } from './sessions.dto';
 import { CreateRecurringEventDto, UpsertSessionExceptionDto } from './sessions-rrule.dto';
 import { Session } from '@prisma/client';
@@ -36,9 +37,24 @@ export interface MaterializedSession {
 // ─── Union type for the calendar ─────────────────────────────────────────────
 export type CalendarSession = (Session & { isVirtual?: false }) | MaterializedSession;
 
+// Map JS getDay() (0=Sun) → config key
+const DAY_MAP: Record<number, keyof Omit<WorkHoursConfig, 'slotDurationMinutes'>> = {
+  0: 'sunday',
+  1: 'monday',
+  2: 'tuesday',
+  3: 'wednesday',
+  4: 'thursday',
+  5: 'friday',
+  6: 'saturday',
+};
+
 @Injectable()
 export class SessionsService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private settingsService: SettingsService,
+    private availabilityBlocksService: AvailabilityBlocksService,
+  ) { }
 
   // ═══════════════════════════════════════════════════════════
   //  LEGACY: single-instance + eager-create recurrence
@@ -140,28 +156,24 @@ export class SessionsService {
     const materialized: MaterializedSession[] = [];
 
     for (const event of recurringEvents) {
-      // Build the RRuleSet from the stored RRULE + dtstart
-      let ruleSet: RRuleSet;
+      // Expand occurrences using shared RRULE utility
+      let occurrences: Date[];
       try {
-        // rrulestr can parse "FREQ=WEEKLY;BYDAY=MO,WE" with a dtstart
-        const rule = rrulestr(
-          `DTSTART:${event.dtstart.toISOString().replace(/[-:]/g, '').split('.')[0]}Z\nRRULE:${event.rrule}`,
-          { forceset: true },
-        ) as RRuleSet;
+        const exdates = event.exceptions
+          .filter((ex) => ex.cancelled)
+          .map((ex) => new Date(ex.originalStartTime));
 
-        // Apply EXDATE for cancelled exceptions
-        for (const ex of event.exceptions) {
-          if (ex.cancelled) {
-            rule.exdate(new Date(ex.originalStartTime));
-          }
-        }
-        ruleSet = rule;
+        occurrences = expandRRuleForRange(
+          event.rrule,
+          event.dtstart,
+          event.timezone,
+          rangeStart,
+          rangeEnd,
+          exdates,
+        );
       } catch {
         continue; // Skip malformed rules
       }
-
-      // Expand occurrences inside the window
-      const occurrences = ruleSet.between(rangeStart, rangeEnd, true);
 
       for (const occurrence of occurrences) {
         const originalISO = occurrence.toISOString();
@@ -287,6 +299,9 @@ export class SessionsService {
    * Privacy-safe: only exposes free slots, not client details.
    */
   async findAvailableSlots(userId: string, rangeStart: Date, rangeEnd: Date) {
+    // Load dynamic config
+    const workHours = await this.settingsService.getWorkHours(userId);
+
     const legacySessions = await this.prisma.session.findMany({
       where: { userId, date: { gte: rangeStart, lte: rangeEnd } },
       select: { date: true, durationMinutes: true, type: true, completed: true },
@@ -298,21 +313,34 @@ export class SessionsService {
     } catch {
       // Ignore — table may not exist yet
     }
+
+    // Load availability blocks
+    let blocks: { start: string; end: string }[] = [];
+    try {
+      blocks = await this.availabilityBlocksService.materializeBlocksForRange(userId, rangeStart, rangeEnd);
+    } catch {
+      // Ignore — table may not exist yet
+    }
+
     // Merge occupied slots
     const occupied = [
       ...legacySessions.map((s) => ({
         start: new Date(s.date),
         end: new Date(new Date(s.date).getTime() + s.durationMinutes * 60_000),
-        type: s.type,
       })),
       ...virtualSessions.map((s) => ({
         start: new Date(s.date),
         end: new Date(new Date(s.date).getTime() + s.durationMinutes * 60_000),
-        type: s.type,
       })),
     ];
 
-    // Build available 60-min slots Mon–Sat 07:00–20:00 within the range
+    // Blocked time ranges
+    const blocked = blocks.map((b) => ({
+      start: new Date(b.start),
+      end: new Date(b.end),
+    }));
+
+    const slotDuration = workHours.slotDurationMinutes;
     const slots: Array<{
       date: string;
       time: string;
@@ -322,22 +350,40 @@ export class SessionsService {
 
     const current = new Date(rangeStart);
     while (current <= rangeEnd) {
-      const dayOfWeek = current.getDay(); // 0=Sun, 6=Sat
-      if (dayOfWeek !== 0) {
-        // Skip Sundays
-        for (let hour = 7; hour <= 19; hour++) {
+      const dayKey = DAY_MAP[current.getDay()];
+      const dayConfig = workHours[dayKey];
+
+      if (dayConfig.enabled) {
+        const [startHour, startMin] = dayConfig.start.split(':').map(Number);
+        const [endHour, endMin] = dayConfig.end.split(':').map(Number);
+        const dayStartMinutes = startHour * 60 + startMin;
+        const dayEndMinutes = endHour * 60 + endMin;
+
+        for (let mins = dayStartMinutes; mins + slotDuration <= dayEndMinutes + slotDuration; mins += slotDuration) {
+          const slotHour = Math.floor(mins / 60);
+          const slotMin = mins % 60;
+
           const slotStart = new Date(current);
-          slotStart.setHours(hour, 0, 0, 0);
-          const slotEnd = new Date(slotStart.getTime() + 60 * 60_000);
+          slotStart.setHours(slotHour, slotMin, 0, 0);
+          const slotEnd = new Date(slotStart.getTime() + slotDuration * 60_000);
+
+          // Don't exceed the day's end time
+          if (slotEnd > new Date(new Date(current).setHours(endHour, endMin, 0, 0)) && mins !== dayEndMinutes) {
+            continue;
+          }
 
           const isOccupied = occupied.some(
             (o) => slotStart < o.end && slotEnd > o.start,
           );
 
-          if (!isOccupied) {
+          const isBlocked = blocked.some(
+            (b) => slotStart < b.end && slotEnd > b.start,
+          );
+
+          if (!isOccupied && !isBlocked) {
             slots.push({
               date: slotStart.toISOString().split('T')[0],
-              time: `${String(hour).padStart(2, '0')}:00`,
+              time: `${String(slotHour).padStart(2, '0')}:${String(slotMin).padStart(2, '0')}`,
               type: 'In-Person',
               available: true,
             });
