@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for app-personal-manager-api on 2026-07-18T00:51:05Z
+# fly.toml app configuration file generated for app-personal-manager-api on 2026-07-18T13:54:54Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -19,10 +19,12 @@ primary_region = 'gru'
   processes = ['app']
 
 [[vm]]
-  memory = '1gb'
+  memory = '512mb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 256
+  memory_mb = 512
+  processes = ['app']
+  size = 'shared-cpu-1x'
 
 [env]
   # Non-sensitive runtime config (safe to commit)
@@ -56,6 +58,7 @@ primary_region = 'gru'
     protocol     = "http"
 
 [checks]
+
   [checks.alive]
     type     = "tcp"
     interval = "15s"
