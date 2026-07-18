@@ -1,0 +1,30 @@
+# Dependencies (rebuilt inside Docker)
+node_modules/
+npm-debug.log*
+
+# Build outputs
+dist/
+
+# Environment secrets — MUST NOT be baked into the image
+.env
+.env.*
+!.env.example
+
+# Version control
+.git/
+.gitignore
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Test artifacts
+coverage/
+junit.xml
+*.log
+
+# fly.io (not needed inside container)
+fly.toml

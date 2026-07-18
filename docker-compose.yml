@@ -1,32 +1,45 @@
 version: '3.8'
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LOCAL DEVELOPMENT ONLY
+# This file is NOT used on fly.io. Production uses Fly Postgres over the
+# private 6PN network and secrets injected via `fly secrets set`.
+# ─────────────────────────────────────────────────────────────────────────────
+
 services:
   postgres:
     image: postgres:15-alpine
     container_name: gym_backend_db
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password123
-      POSTGRES_DB: gym_management
-    ports:
-      - '5432:5432'
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}   # Required — set in .env (no default)
+      POSTGRES_DB: ${POSTGRES_DB:-gym_management}
+    # Port NOT exposed to the host — app connects via Docker network only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-gym_management}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - container_network_1
 
+  # ⚠️  DEV ONLY — Adminer is a raw SQL UI and must NEVER be deployed to production
   adminer:
     image: adminer
-    restart: always
+    restart: unless-stopped
     ports:
-      - '8080:8080'
+      - '127.0.0.1:8080:8080'   # Bound to localhost only — not reachable from the network
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - container_network_1
 
 networks:
-      - container_network_1
+  container_network_1:
+    driver: bridge
 
 volumes:
   postgres_data:
