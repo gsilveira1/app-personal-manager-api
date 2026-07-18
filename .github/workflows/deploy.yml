@@ -23,7 +23,7 @@ jobs:
 
       # Opcional: Se seu projeto usa Prisma/PostgreSQL no Fly e precisa rodar migrations antes do deploy
       - name: Run Migrations (Opcional)
-        run: flyctl deploy --release-only
+        run: flyctl deploy
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
