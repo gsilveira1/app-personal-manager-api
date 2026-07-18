@@ -1,34 +1,46 @@
-FROM node:25-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copia apenas arquivos de dependência primeiro para cachear camadas
+# Copy only dependency files first to leverage Docker layer cache
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Instala dependências
+# Install all dependencies (including devDeps needed for build)
 RUN npm ci
 
-# Copia o código fonte
+# Copy source code
 COPY . .
 
-# Gera o cliente Prisma e faz o build do NestJS
+# Generate Prisma client and build NestJS
 RUN npx prisma generate
 RUN npm run build
 
-# Estágio de Produção (Imagem final leve)
-FROM node:25-alpine
+# ─────────────────────────────────────────────────────────────────────────────
+# Production stage — minimal, hardened image
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:22-alpine
+
+# dumb-init is a minimal init process that correctly forwards SIGTERM to the
+# Node.js process (required for fly.io graceful shutdown)
+RUN apk add --no-cache dumb-init
 
 WORKDIR /app
 
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
+# Set production mode — disables dev tooling and enables production optimisations
+ENV NODE_ENV=production
 
-# Usuário não-root por segurança
+# Copy artifacts from builder, chown to the non-root 'node' user BEFORE switching
+# to it — avoids root-owned files that the app cannot later modify if needed
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/package*.json ./
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/prisma ./prisma
+
+# Switch to non-root user for all subsequent commands and at runtime
 USER node
 
-EXPOSE 3000
+EXPOSE 9090
 
-CMD ["npm", "run", "start:prod"]
+# dumb-init as PID 1 ensures correct SIGTERM handling; run compiled JS directly
+CMD ["dumb-init", "node", "dist/main"]

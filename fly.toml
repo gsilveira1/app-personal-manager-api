@@ -4,9 +4,7 @@
 #
 
 app = 'app-personal-manager-api'
-primary_region = 'ams'
-
-[build]
+primary_region = 'gru'
 
 [deploy]
   release_command = 'npx prisma migrate deploy'
@@ -25,3 +23,41 @@ primary_region = 'ams'
   cpu_kind = 'shared'
   cpus = 1
   memory_mb = 256
+
+[env]
+  # Non-sensitive runtime config (safe to commit)
+  NODE_ENV = "production"
+  PORT     = "9090"
+
+[[services]]
+  internal_port = 9090
+  protocol      = "tcp"
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port     = 443
+
+  [[services.ports]]
+    handlers    = ["http"]
+    port        = 80
+    force_https = true    # Redirect all HTTP → HTTPS
+
+  [services.concurrency]
+    type       = "connections"
+    hard_limit = 100
+    soft_limit = 80
+
+  [[services.http_checks]]
+    interval     = "15s"
+    timeout      = "5s"
+    grace_period = "30s"   # Time for the app to start before health checks begin
+    method       = "GET"
+    path         = "/health"
+    protocol     = "http"
+
+[checks]
+  [checks.alive]
+    type     = "tcp"
+    interval = "15s"
+    timeout  = "2s"
+    port     = 9090

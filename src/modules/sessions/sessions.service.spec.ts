@@ -3,10 +3,14 @@ import { NotFoundException, ForbiddenException } from '@nestjs/common';
 
 import { SessionsService } from './sessions.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
+import { AvailabilityBlocksService } from '../availability-blocks/availability-blocks.service';
 
 describe('SessionsService', () => {
   let service: SessionsService;
   let prisma: any;
+  let settingsService: any;
+  let availabilityBlocksService: any;
 
   const userId = 'trainer-uuid-1';
   const clientId = 'client-uuid-1';
@@ -30,6 +34,18 @@ describe('SessionsService', () => {
     id: clientId,
     userId,
     name: 'Maria Santos',
+  };
+
+  // Default work hours matching the old hardcoded behavior
+  const defaultWorkHours = {
+    monday:    { enabled: true, start: '07:00', end: '19:00' },
+    tuesday:   { enabled: true, start: '07:00', end: '19:00' },
+    wednesday: { enabled: true, start: '07:00', end: '19:00' },
+    thursday:  { enabled: true, start: '07:00', end: '19:00' },
+    friday:    { enabled: true, start: '07:00', end: '19:00' },
+    saturday:  { enabled: true, start: '07:00', end: '19:00' },
+    sunday:    { enabled: false, start: '08:00', end: '12:00' },
+    slotDurationMinutes: 60,
   };
 
   beforeEach(async () => {
@@ -56,10 +72,20 @@ describe('SessionsService', () => {
       $transaction: jest.fn((ops) => Promise.all(ops)),
     };
 
+    settingsService = {
+      getWorkHours: jest.fn().mockResolvedValue(defaultWorkHours),
+    };
+
+    availabilityBlocksService = {
+      materializeBlocksForRange: jest.fn().mockResolvedValue([]),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SessionsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: SettingsService, useValue: settingsService },
+        { provide: AvailabilityBlocksService, useValue: availabilityBlocksService },
       ],
     }).compile();
 
@@ -708,6 +734,74 @@ describe('SessionsService', () => {
       const result = await service.findAvailableSlots(userId, sunday, sunday);
 
       expect(result).toEqual([]);
+    });
+
+    it('should use custom work hours when configured', async () => {
+      settingsService.getWorkHours.mockResolvedValue({
+        ...defaultWorkHours,
+        monday: { enabled: true, start: '09:00', end: '12:00' },
+      });
+      prisma.session.findMany.mockResolvedValue([]);
+      prisma.recurringEvent.findMany.mockResolvedValue([]);
+
+      const monday = new Date(2025, 0, 6);
+      const result = await service.findAvailableSlots(userId, monday, monday);
+
+      // 09:00, 10:00, 11:00, 12:00 = 4 slots
+      expect(result.length).toBe(4);
+      expect(result[0].time).toBe('09:00');
+      expect(result[result.length - 1].time).toBe('12:00');
+    });
+
+    it('should enable Sunday when configured', async () => {
+      settingsService.getWorkHours.mockResolvedValue({
+        ...defaultWorkHours,
+        sunday: { enabled: true, start: '08:00', end: '10:00' },
+      });
+      prisma.session.findMany.mockResolvedValue([]);
+      prisma.recurringEvent.findMany.mockResolvedValue([]);
+
+      const sunday = new Date(2025, 0, 5);
+      const result = await service.findAvailableSlots(userId, sunday, sunday);
+
+      expect(result.length).toBe(3); // 08:00, 09:00, 10:00
+    });
+
+    it('should exclude availability blocks', async () => {
+      prisma.session.findMany.mockResolvedValue([]);
+      prisma.recurringEvent.findMany.mockResolvedValue([]);
+
+      const monday = new Date(2025, 0, 6);
+      const blockStart = new Date(2025, 0, 6, 12, 0, 0);
+      const blockEnd = new Date(2025, 0, 6, 13, 0, 0);
+
+      availabilityBlocksService.materializeBlocksForRange.mockResolvedValue([
+        { id: 'block-1', blockId: 'block-1', title: 'Almoço', start: blockStart.toISOString(), end: blockEnd.toISOString(), isRecurring: false, notes: null },
+      ]);
+
+      const result = await service.findAvailableSlots(userId, monday, monday);
+
+      const times = result.map((s: any) => s.time);
+      expect(times).not.toContain('12:00');
+      expect(result.length).toBe(12); // 13 - 1 blocked
+    });
+
+    it('should respect custom slot duration', async () => {
+      settingsService.getWorkHours.mockResolvedValue({
+        ...defaultWorkHours,
+        monday: { enabled: true, start: '08:00', end: '10:00' },
+        slotDurationMinutes: 30,
+      });
+      prisma.session.findMany.mockResolvedValue([]);
+      prisma.recurringEvent.findMany.mockResolvedValue([]);
+
+      const monday = new Date(2025, 0, 6);
+      const result = await service.findAvailableSlots(userId, monday, monday);
+
+      // 08:00, 08:30, 09:00, 09:30, 10:00 = 5 slots
+      expect(result.length).toBe(5);
+      expect(result[0].time).toBe('08:00');
+      expect(result[1].time).toBe('08:30');
     });
   });
 });
