@@ -1,0 +1,33 @@
+name: Continuous Deployment - Fly.io
+
+on:
+  push:
+    branches:
+      - main # Altere para 'master' se for o caso
+
+jobs:
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+    
+    # Se você utiliza Prisma/banco de dados, pode ser útil garantir que o deploy
+    # aconteça de forma sequencial para evitar concorrência em migrations
+    concurrency: deploy-group
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # Opcional: Se seu projeto usa Prisma/PostgreSQL no Fly e precisa rodar migrations antes do deploy
+      - name: Run Migrations (Opcional)
+        run: flyctl deploy --release-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Deploy to Fly.io
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
