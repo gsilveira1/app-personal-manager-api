@@ -11,7 +11,7 @@ const mockSettingsService = {
 };
 
 const mockRequest = (userId: string): RequestWithUser =>
-  ({ user: { userId, email: 'test@example.com' } } as RequestWithUser);
+  ({ user: { userId, email: 'test@example.com' } } as unknown as RequestWithUser);
 
 describe('SettingsController', () => {
   let controller: SettingsController;

@@ -88,23 +88,25 @@ model Plan {
 }
 
 model SystemFeature {
-  id          String   @id @default(uuid())
-  key         String   @unique
-  name        String
+  id          String  @id @default(uuid())
+  key         String  @unique // e.g. "ai_whatsapp_bot", "posture_correction"
+  name        String // Display name, e.g. "Bot WhatsApp com IA"
   description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive    Boolean @default(true) // Admin can deactivate globally
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   plans PlanFeature[]
 }
 
 model PlanFeature {
-  planId     String
-  featureId  String
-  assignedAt DateTime      @default(now())
-  plan       Plan          @relation(fields: [planId], references: [id], onDelete: Cascade)
-  feature    SystemFeature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  planId    String
+  plan      Plan          @relation(fields: [planId], references: [id], onDelete: Cascade)
+  featureId String
+  feature   SystemFeature @relation(fields: [featureId], references: [id], onDelete: Restrict)
+
+  assignedAt DateTime @default(now())
 
   @@id([planId, featureId])
   @@index([featureId])
