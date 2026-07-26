@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # 1. Sidecar de Banco de Dados: PostgreSQL com extensão pgvector
+  postgres:
+    image: ankane/pgvector:v0.5.1
+    command: -c "listen_addresses=127.0.0.1"
+    environment:
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD} # Injetado via fly secrets
+      POSTGRES_DB: ${DB_NAME:-gym_management}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: always
+
+  # 2. Sidecar WhatsApp HTTP API (WAHA)
+  waha:
+    image: devlikeapro/waha:latest
+    environment:
+      HOST: 127.0.0.1
+      PORT: 3000
+      WAHA_ZIP_ENGINE: NOWEB
+      WAHA_WORKER_ID: waha-server
+      WAHA_API_KEY: ${WAHA_API_KEY} # Injetado via fly secrets
+    volumes:
+      - waha_data:/.waha/core/sessions
+    restart: always
+    depends_on:
+      - postgres
+
+  # 3. Aplicação Principal: NestJS Backend
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATABASE_URL: ${DATABASE_URL} # Injetado via fly secrets
+      WAHA_API_URL: http://127.0.0.1:3000
+      WAHA_API_KEY: ${WAHA_API_KEY}
+    restart: always
+    depends_on:
+      - postgres
+      - waha
+
+volumes:
+  pg_data:
+  waha_data:

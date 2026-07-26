@@ -1,9 +1,11 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [pgvector(map: "vector")]
 }
 
 // Enums
@@ -272,4 +274,16 @@ model AvailabilityBlock {
 
   @@index([userId])
   @@index([userId, dtstart])
+}
+
+// Modelo para embeddings de contexto (IA / RAG WhatsApp)
+model ContextEmbedding {
+  id        String                    @id @default(uuid())
+  content   String
+  embedding Unsupported("vector(1536)")?
+  metadata  Json?
+  createdAt DateTime                  @default(now())
+  updatedAt DateTime                  @updatedAt
+
+  @@index([createdAt])
 }
