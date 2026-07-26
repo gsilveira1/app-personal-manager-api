@@ -10,8 +10,8 @@ import { RequestWithUser } from '../../types/global';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService,
-    private readonly usersService: UsersService 
-  ) {}
+    private readonly usersService: UsersService
+  ) { }
 
   @Post('login')
   async login(@Body() body: AuthLoginDTO) {
@@ -33,10 +33,11 @@ export class AuthController {
 
   @Post('signup')
   async signup(@Body() body: CreateUserDto) {
-    return this.usersService.create(body);
+    const user = await this.usersService.create(body);
+    return this.authService.login(user);
   }
 
-   // Endpoint para obter o perfil do utilizador logado
+  // Endpoint para obter o perfil do utilizador logado
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
   async getProfile(@Request() req: RequestWithUser) {

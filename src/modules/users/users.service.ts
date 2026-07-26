@@ -21,7 +21,7 @@ export class UsersService {
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
     // Removemos a senha do retorno para segurança
-    const { password, ...result } = await this.prisma.user.create({
+    const { password: _password, ...result } = await this.prisma.user.create({
       data: {
         ...data,
         password: hashedPassword,
@@ -34,14 +34,14 @@ export class UsersService {
   async findAll() {
     const users = await this.prisma.user.findMany();
     // Remover senhas da lista
-    return users.map(({ password, ...user }: User) => user);
+    return users.map(({ password: _password, ...user }: User) => user);
   }
 
   async findOne(id: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException(`Usuário #${id} não encontrado`);
 
-    const { password, ...result } = user;
+    const { password: _password, ...result } = user;
     return result;
   }
 
@@ -59,7 +59,7 @@ export class UsersService {
       updateData.password = await bcrypt.hash(data.password, 10);
     }
 
-    const { password, ...result } = await this.prisma.user.update({
+    const { password: _password, ...result } = await this.prisma.user.update({
       where: { id },
       data: updateData,
     });

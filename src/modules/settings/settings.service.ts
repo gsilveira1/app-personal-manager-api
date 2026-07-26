@@ -23,19 +23,19 @@ export interface WorkHoursConfig {
 }
 
 const DEFAULT_WORK_HOURS: WorkHoursConfig = {
-  monday:    { enabled: true, start: '07:00', end: '19:00' },
-  tuesday:   { enabled: true, start: '07:00', end: '19:00' },
+  monday: { enabled: true, start: '07:00', end: '19:00' },
+  tuesday: { enabled: true, start: '07:00', end: '19:00' },
   wednesday: { enabled: true, start: '07:00', end: '19:00' },
-  thursday:  { enabled: true, start: '07:00', end: '19:00' },
-  friday:    { enabled: true, start: '07:00', end: '19:00' },
-  saturday:  { enabled: true, start: '07:00', end: '19:00' },
-  sunday:    { enabled: false, start: '08:00', end: '12:00' },
+  thursday: { enabled: true, start: '07:00', end: '19:00' },
+  friday: { enabled: true, start: '07:00', end: '19:00' },
+  saturday: { enabled: true, start: '07:00', end: '19:00' },
+  sunday: { enabled: false, start: '08:00', end: '12:00' },
   slotDurationMinutes: 60,
 };
 
 @Injectable()
 export class SettingsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async getAiInstructions(userId: string) {
     // Busca pela chave composta (userId + key)
@@ -71,7 +71,7 @@ export class SettingsService {
     const setting = await this.prisma.userSetting.findUnique({
       where: { userId_key: { userId, key: LANGUAGE_KEY } },
     });
-    return { language: setting?.value ?? 'pt-BR' };
+    return { language: setting?.value ?? 'en' };
   }
 
   async updateLanguage(userId: string, language: string): Promise<{ language: string }> {

@@ -1,8 +1,7 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './users-create.dto';
 import { UpdateUserDto } from './users-update.dto';
-import { AuthGuard } from '@nestjs/passport';
 
 // Em uma aplicação real, você provavelmente protegeria essas rotas
 // com @UseGuards(AuthGuard('jwt')) para que apenas admins criem usuários
