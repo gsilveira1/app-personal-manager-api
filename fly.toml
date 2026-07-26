@@ -1,5 +1,7 @@
-# fly.toml — app-personal-manager-api (Multi-container Sidecar Architecture)
-# See https://fly.io/docs/reference/configuration/
+# fly.toml app configuration file generated for app-personal-manager-api on 2026-07-26T23:52:13Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
 app            = 'app-personal-manager-api'
 primary_region = 'gru'
@@ -7,10 +9,12 @@ primary_region = 'gru'
 # ─── Orquestração Multi-Container ──────────────────────────────────────────────
 # Utiliza o Docker Compose para orquestrar NestJS + Postgres (pgvector) + WAHA
 # como containers sidecars na exata mesma Máquina Fly.io (shared localhost network).
+
 [build.compose]
   file = "docker-compose.prod.yml"
 
 # ─── Variáveis de Ambiente Estáticas (Não-Sensíveis) ───────────────────────────
+
 [env]
   NODE_ENV      = "production"
   PORT          = "8080"
@@ -19,6 +23,7 @@ primary_region = 'gru'
   DATABASE_PORT = "5432"
 
 # ─── Mapeamento de Volumes Persistentes ────────────────────────────────────────
+
 [[mounts]]
   source      = "pg_data"
   destination = "/var/lib/postgresql/data"
@@ -32,6 +37,7 @@ primary_region = 'gru'
 # ─── Exposição de Rede Pública (Apenas NestJS com TLS) ─────────────────────────
 # As portas 5432 (Postgres) e 3000 (WAHA) NÃO são listadas aqui e permanecem
 # estritamente isoladas na interface loopback 127.0.0.1 da VM.
+
 [[services]]
   protocol      = "tcp"
   internal_port = 8080
@@ -52,6 +58,15 @@ primary_region = 'gru'
     grace_period = "10s"
 
 # ─── Dimensionamento de Máquina (Proteção contra OOM do Chromium/WAHA) ─────────
+
 [[vm]]
-  size   = 'shared-cpu-2x'
+  size = 'shared-cpu-2x'
   memory = '2048mb'
+
+[[vm]]
+  size = 'shared-cpu-2x'
+  memory = '3gb'
+  cpu_kind = 'shared'
+  cpus = 2
+  memory_mb = 3072
+  processes = ['app']
