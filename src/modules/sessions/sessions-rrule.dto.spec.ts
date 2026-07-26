@@ -41,7 +41,7 @@ describe('CreateRecurringEventDto', () => {
   });
 
   it('should fail when rrule is missing', async () => {
-    const { rrule, ...noRrule } = validData;
+    const { rrule: _rrule, ...noRrule } = validData;
     const dto = createDto(noRrule);
     const errors = await validate(dto);
     expect(errors.some(e => e.property === 'rrule')).toBe(true);
@@ -72,7 +72,7 @@ describe('CreateRecurringEventDto', () => {
   });
 
   it('should fail when timezone is missing', async () => {
-    const { timezone, ...noTz } = validData;
+    const { timezone: _timezone, ...noTz } = validData;
     const dto = createDto(noTz);
     const errors = await validate(dto);
     expect(errors.some(e => e.property === 'timezone')).toBe(true);

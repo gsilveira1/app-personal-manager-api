@@ -38,13 +38,13 @@ describe('SessionsService', () => {
 
   // Default work hours matching the old hardcoded behavior
   const defaultWorkHours = {
-    monday:    { enabled: true, start: '07:00', end: '19:00' },
-    tuesday:   { enabled: true, start: '07:00', end: '19:00' },
+    monday: { enabled: true, start: '07:00', end: '19:00' },
+    tuesday: { enabled: true, start: '07:00', end: '19:00' },
     wednesday: { enabled: true, start: '07:00', end: '19:00' },
-    thursday:  { enabled: true, start: '07:00', end: '19:00' },
-    friday:    { enabled: true, start: '07:00', end: '19:00' },
-    saturday:  { enabled: true, start: '07:00', end: '19:00' },
-    sunday:    { enabled: false, start: '08:00', end: '12:00' },
+    thursday: { enabled: true, start: '07:00', end: '19:00' },
+    friday: { enabled: true, start: '07:00', end: '19:00' },
+    saturday: { enabled: true, start: '07:00', end: '19:00' },
+    sunday: { enabled: false, start: '08:00', end: '12:00' },
     slotDurationMinutes: 60,
   };
 
@@ -151,7 +151,7 @@ describe('SessionsService', () => {
       prisma.session.create.mockImplementation((args: any) => Promise.resolve({ id: 'new-id', ...args.data }));
 
       const baseData = { durationMinutes: 60, type: 'In-Person', category: 'Workout', clientId };
-      const result = await service.createRecurring(userId, baseData as any, '2025-01-06', 'weekly', '2025-01-20');
+      const _result = await service.createRecurring(userId, baseData as any, '2025-01-06', 'weekly', '2025-01-20');
 
       // 3 weeks: Jan 6, 13, 20
       expect(prisma.session.create).toHaveBeenCalledTimes(3);
@@ -162,7 +162,7 @@ describe('SessionsService', () => {
       prisma.session.create.mockImplementation((args: any) => Promise.resolve({ id: 'new-id', ...args.data }));
 
       const baseData = { durationMinutes: 60, type: 'In-Person', category: 'Workout', clientId };
-      const result = await service.createRecurring(userId, baseData as any, '2025-01-06', 'bi-weekly', '2025-02-03');
+      const _result = await service.createRecurring(userId, baseData as any, '2025-01-06', 'bi-weekly', '2025-02-03');
 
       // Jan 6, Jan 20, Feb 3
       expect(prisma.session.create).toHaveBeenCalledTimes(3);
@@ -213,7 +213,7 @@ describe('SessionsService', () => {
       prisma.session.findUnique.mockResolvedValue(mockSession);
       prisma.session.update.mockResolvedValue({ ...mockSession, notes: 'Updated' });
 
-      const result = await service.updateWithScope(userId, sessionId, { notes: 'Updated' } as any, 'single');
+      const _result = await service.updateWithScope(userId, sessionId, { notes: 'Updated' } as any, 'single');
 
       expect(prisma.session.update).toHaveBeenCalledWith({
         where: { id: sessionId },
@@ -283,7 +283,7 @@ describe('SessionsService', () => {
       prisma.session.findUnique.mockResolvedValue({ ...mockSession, completed: false });
       prisma.session.update.mockResolvedValue({ ...mockSession, completed: true });
 
-      const result = await service.toggleComplete(userId, sessionId);
+      const _result = await service.toggleComplete(userId, sessionId);
 
       expect(prisma.session.update).toHaveBeenCalledWith({
         where: { id: sessionId },
@@ -295,7 +295,7 @@ describe('SessionsService', () => {
       prisma.session.findUnique.mockResolvedValue({ ...mockSession, completed: true });
       prisma.session.update.mockResolvedValue({ ...mockSession, completed: false });
 
-      const result = await service.toggleComplete(userId, sessionId);
+      const _result = await service.toggleComplete(userId, sessionId);
 
       expect(prisma.session.update).toHaveBeenCalledWith({
         where: { id: sessionId },

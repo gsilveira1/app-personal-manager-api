@@ -156,7 +156,7 @@ describe('EvaluationsService', () => {
       prisma.evaluation.findUnique.mockResolvedValue(mockEvaluation);
       prisma.evaluation.update.mockResolvedValue({ ...mockEvaluation, weight: 64 });
 
-      const result = await service.update(userId, evaluationId, {
+      const _result = await service.update(userId, evaluationId, {
         weight: 64,
         perimeters: { waist: 73 },
       } as any);

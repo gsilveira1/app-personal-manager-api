@@ -34,7 +34,7 @@ describe('CreateSessionDto', () => {
   });
 
   it('should fail when date is missing', async () => {
-    const { date, ...noDate } = validData;
+    const { date: _date, ...noDate } = validData;
     const dto = createDto(noDate);
     const errors = await validate(dto);
     expect(errors.some(e => e.property === 'date')).toBe(true);
@@ -53,14 +53,14 @@ describe('CreateSessionDto', () => {
   });
 
   it('should fail when type is missing', async () => {
-    const { type, ...noType } = validData;
+    const { type: _type, ...noType } = validData;
     const dto = createDto(noType);
     const errors = await validate(dto);
     expect(errors.some(e => e.property === 'type')).toBe(true);
   });
 
   it('should fail when category is missing', async () => {
-    const { category, ...noCat } = validData;
+    const { category: _category, ...noCat } = validData;
     const dto = createDto(noCat);
     const errors = await validate(dto);
     expect(errors.some(e => e.property === 'category')).toBe(true);
