@@ -11,8 +11,8 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
-import { AppModule } from '../src/app.module';
+import request from 'supertest';
+import { AppModule } from '../src/modules/app.module';
 import { PrismaService } from '../src/modules/prisma/prisma.service';
 
 describe('Settings Language API (e2e)', () => {
@@ -52,7 +52,7 @@ describe('Settings Language API (e2e)', () => {
   afterAll(async () => {
     // Cleanup test user and their settings
     await prisma.userSetting.deleteMany({ where: { userId } });
-    await prisma.user.delete({ where: { id: userId } }).catch(() => {});
+    await prisma.user.delete({ where: { id: userId } }).catch(() => { });
     await app.close();
   });
 

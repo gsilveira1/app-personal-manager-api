@@ -1,33 +1,36 @@
-
-# Node.js
+# Build output
 dist/
+
+# Dependencies (reinstalled inside the image)
 node_modules/
+
+# Environment files (injected via fly secrets)
+.env
+.env.*
+!.env.example
+
+# Git
+.git
+.gitignore
+
+# CI / tooling
+.github
+.vscode
+.agent
+
+# Local dev
+docker-compose.yml
+dockerfile
+
+# Logs and debug
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
+*.log
 
-# NestJS
-.env
-.env.test
-.env.production
-
-# Testing
+# Test artefacts
 coverage/
 junit.xml
 
-# IDEs
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# MacOS
+# OS artefacts
 .DS_Store
-
-# Prisma
-# Keep migrations, but ignore other generated artifacts if any outside node_modules
-# (Usually generated client is in node_modules/@prisma/client)
-
-# Misc
-*.log
+Thumbs.db

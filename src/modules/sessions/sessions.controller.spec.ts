@@ -183,8 +183,8 @@ describe('SessionsController', () => {
       jest.resetModules();
 
       // Re-require with fresh module-level TRAINER_USER_ID
-      const { SessionsController: FreshController } = require('./sessions.controller');
-      const { SessionsService: FreshService } = require('./sessions.service');
+      const { SessionsController: FreshController } = await import('./sessions.controller');
+      const { SessionsService: FreshService } = await import('./sessions.service');
 
       const freshService = { findAvailableSlots: jest.fn().mockResolvedValue([{ date: '2025-03-03', time: '10:00' }]) };
       const mod = await Test.createTestingModule({

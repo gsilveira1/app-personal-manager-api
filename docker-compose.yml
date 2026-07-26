@@ -2,19 +2,20 @@ version: '3.8'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LOCAL DEVELOPMENT ONLY
-# This file is NOT used on fly.io. Production uses Fly Postgres over the
-# private 6PN network and secrets injected via `fly secrets set`.
+# This file is NOT used on fly.io. Production uses the multi-container sidecar
+# model defined in docker-compose.prod.yml with secrets via `fly secrets set`.
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: ankane/pgvector:v0.5.1
     container_name: gym_backend_db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}   # Required — set in .env (no default)
       POSTGRES_DB: ${POSTGRES_DB:-gym_management}
-    # Port NOT exposed to the host — app connects via Docker network only
+    ports:
+      - '127.0.0.1:5432:5432'   # Exposed to localhost for prisma migrate dev / prisma studio
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-gym_management}"]
       interval: 10s
@@ -30,7 +31,7 @@ services:
     image: adminer
     restart: unless-stopped
     ports:
-      - '127.0.0.1:8080:8080'   # Bound to localhost only — not reachable from the network
+      - '127.0.0.1:8081:8080'   # Moved to 8081 — avoids conflict with NestJS on 8080
     depends_on:
       postgres:
         condition: service_healthy

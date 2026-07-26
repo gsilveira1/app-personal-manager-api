@@ -41,7 +41,7 @@ describe('LeadsService', () => {
       const dto = { name: 'Carlos', email: 'carlos@example.com', phone: '53999001122', interest: 'presencial' as const };
       prisma.client.create.mockResolvedValue({ id: 'lead-1', ...dto, type: 'In-Person', status: 'Lead' });
 
-      const result = await service.create(dto);
+      const _result = await service.create(dto);
 
       expect(prisma.client.create).toHaveBeenCalledWith({
         data: expect.objectContaining({

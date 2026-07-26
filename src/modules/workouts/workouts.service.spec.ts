@@ -133,7 +133,7 @@ describe('WorkoutsService', () => {
       prisma.workoutPlan.findUnique.mockResolvedValue({ ...mockWorkout, client: null });
       prisma.workoutPlan.update.mockResolvedValue({ ...mockWorkout, title: 'Updated' });
 
-      const result = await service.update(userId, workoutId, {
+      const _result = await service.update(userId, workoutId, {
         title: 'Updated',
         exercises: [{ name: 'Puxada', sets: 3, reps: '10' }],
       } as any);

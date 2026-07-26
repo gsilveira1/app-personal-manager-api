@@ -1,51 +1,52 @@
-# syntax = docker/dockerfile:1
+# --- Stage 1: Build ---
+FROM node:20-alpine AS builder
 
-# Adjust NODE_VERSION as desired
-ARG NODE_VERSION=22.21.1
-FROM node:${NODE_VERSION}-slim AS base
-
-LABEL fly_launch_runtime="NestJS/Prisma"
-
-# NestJS/Prisma app lives here
 WORKDIR /app
 
-# Set production environment
-ENV NODE_ENV="production"
+# Copy dependency manifests and Prisma schema first (layer cache)
+COPY package*.json ./
+COPY tsconfig*.json ./
+COPY prisma ./prisma/
 
+# Install all deps (including devDeps needed to compile)
+RUN npm ci
 
-# Throw-away build stage to reduce size of final image
-FROM base AS build
-
-# Install packages needed to build node modules
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y build-essential node-gyp openssl pkg-config python-is-python3
-
-# Install node modules
-COPY package-lock.json package.json ./
-RUN npm ci --include=dev
-
-# Generate Prisma Client
-COPY prisma .
+# Generate Prisma client
 RUN npx prisma generate
 
-# Copy application code
-COPY . .
-
-# Build application
+# Copy source and build
+COPY src/ ./src/
 RUN npm run build
 
+# Prune devDependencies so only production deps are copied
+RUN npm prune --production
 
-# Final stage for app image
-FROM base
+# --- Stage 2: Production Runner ---
+FROM node:20-alpine AS runner
 
-# Install packages needed for deployment
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y openssl && \
-    rm -rf /var/lib/apt/lists /var/cache/apt/archives
+# dumb-init: minimal PID 1 that correctly forwards SIGTERM (required for Fly.io graceful shutdown)
+# postgresql-client: provides pg_isready for the start.sh health check loop
+RUN apk add --no-cache dumb-init postgresql-client
 
-# Copy built application
-COPY --from=build /app /app
+WORKDIR /app
 
-# Start the server by default, this can be overwritten at runtime
-EXPOSE 3000
-CMD [ "npm", "run", "start" ]
+ENV NODE_ENV=production
+ENV PORT=8080
+
+# Copy production artifacts and start script, owned by the non-root 'node' user
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/package*.json ./
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/prisma ./prisma
+COPY --chown=node:node start.sh ./start.sh
+
+# Guarantee execute permissions on entrypoint script
+RUN chmod +x ./start.sh
+
+# Switch to non-root user for principle of least privilege
+USER node
+
+EXPOSE 8080
+
+ENTRYPOINT ["dumb-init", "--", "./start.sh"]
+CMD ["node", "dist/main"]

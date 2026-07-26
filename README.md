@@ -470,6 +470,112 @@ fly ssh console     # Open a shell inside the running machine
 
 ---
 
+## 🚀 Guia de Operações e Deploy Seguro (Fly.io Multi-container Sidecars)
+
+Este ambiente utiliza o modelo de Máquinas Multi-container do Fly.io. O banco PostgreSQL (`pgvector`), o servidor WhatsApp (`WAHA`) e a aplicação NestJS rodam na mesma VM, isolados na rede local `127.0.0.1`.
+
+### 1. Criar a Aplicação
+
+Inicialize o registro da aplicação no Fly.io (sem realizar o deploy imediato):
+
+```bash
+fly apps create app-personal-manager-api --org <sua-organizacao>
+```
+
+### 2. Provisionar Volumes Persistentes
+
+Crie os dois volumes obrigatórios na região primária (`gru` - São Paulo):
+
+```bash
+# Volume para o PostgreSQL (Mínimo 10GB recomendado para dados e vetores)
+fly volumes create pg_data --region gru --size 10 --no-encryption=false --require-unique-zone=false
+
+# Volume para sessões de autenticação do WhatsApp (WAHA)
+fly volumes create waha_data --region gru --size 5 --no-encryption=false --require-unique-zone=false
+```
+
+### 3. Injeção Segura de Credenciais (Zero-Leakage Secrets)
+
+**NUNCA** digite senhas diretamente na linha de comando para evitar exposição no histórico (`~/.bash_history`) ou em logs. Use a importação via stream padrão ou arquivo temporário gitignored:
+
+#### Opção A: Importação de arquivo seguro (Recomendado)
+
+Crie um arquivo `.env.prod.secrets` (já protegido no `.gitignore`):
+
+```env
+DB_USER=admin
+DB_PASSWORD=SuperSenhaSeguraGeradaAleatoriamente123!
+DB_NAME=gym_management
+DATABASE_URL=postgres://admin:SuperSenhaSeguraGeradaAleatoriamente123!@127.0.0.1:5432/gym_management?schema=public
+WAHA_API_KEY=ChaveDeApiSecretaDoWaha2026!
+```
+
+Injete diretamente no cofre do Fly.io e remova o arquivo local em seguida:
+
+```bash
+cat .env.prod.secrets | fly secrets import
+rm .env.prod.secrets
+```
+
+#### Opção B: Injeção interativa via terminal (Sem histórico)
+
+```bash
+read -s DB_PASS
+read -s WAHA_KEY
+fly secrets set \
+  DB_USER="admin" \
+  DB_PASSWORD="$DB_PASS" \
+  DB_NAME="gym_management" \
+  DATABASE_URL="postgres://admin:${DB_PASS}@127.0.0.1:5432/gym_management?schema=public" \
+  WAHA_API_KEY="$WAHA_KEY"
+```
+
+### 4. Deploy e Dimensionamento de Memória (Anti-OOM)
+
+Realize o deploy da stack multi-container:
+
+```bash
+fly deploy
+```
+
+Garanta o escalonamento de memória para no mínimo **2GB RAM (2048 MB)** para suportar o WAHA juntamente com o Postgres e o runtime Node.js sem travamentos (Out-Of-Memory):
+
+```bash
+fly scale memory 2048 --group app
+# Verifique o status da VM
+fly status
+```
+
+### 5. Verificação de Integridade Pós-Deploy
+
+#### Verificação de Isolamento de Rede
+
+```bash
+fly ssh console
+# Dentro da VM:
+netstat -tuln | grep 5432  # Deve retornar 127.0.0.1:5432 (NUNCA 0.0.0.0:5432)
+netstat -tuln | grep 3000  # Deve retornar 127.0.0.1:3000
+```
+
+#### Verificação do Entrypoint e Migrações
+
+```bash
+fly logs
+# Confirmar a mensagem:
+# [start.sh] Migrações do Prisma aplicadas com sucesso.
+```
+
+#### Verificação de Persistência e Volumes
+
+Reiniciar a VM e confirmar que o login do WhatsApp (sessões em `/.waha/core/sessions`) e as tabelas do PostgreSQL permanecem intactos:
+
+```bash
+fly machine restart <machine-id>
+fly logs
+```
+
+---
+
 ## License
 
 `UNLICENSED` — private repository.
