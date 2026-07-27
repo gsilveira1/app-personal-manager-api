@@ -8,7 +8,7 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: gym_backend_db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
@@ -22,18 +22,6 @@ services:
       retries: 5
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - container_network_1
-
-  # ⚠️  DEV ONLY — Adminer is a raw SQL UI and must NEVER be deployed to production
-  adminer:
-    image: adminer
-    restart: unless-stopped
-    ports:
-      - '127.0.0.1:8080:8080'   # Bound to localhost only — not reachable from the network
-    depends_on:
-      postgres:
-        condition: service_healthy
     networks:
       - container_network_1
 
