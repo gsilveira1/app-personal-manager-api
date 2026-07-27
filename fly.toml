@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for app-personal-manager-api on 2026-07-18T18:15:40Z
+# fly.toml app configuration file generated for app-personal-manager-api on 2026-07-27T00:57:26Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -11,9 +11,9 @@ primary_region = 'gru'
   seed_command = 'ts-node -r dotenv/config prisma/seed.ts'
 
 [http_service]
-  internal_port = 8080
+  internal_port = 9090
   force_https = true
-  auto_stop_machines = true
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
   processes = ['app']
