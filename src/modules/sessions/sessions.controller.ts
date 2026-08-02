@@ -15,7 +15,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 
 import { SessionsService } from './sessions.service';
-import { CreateSessionDto, CreateRecurringSessionDto, UpdateSessionScopeDto } from './sessions.dto';
+import { CreateSessionDto, UpdateSessionScopeDto } from './sessions.dto';
 import { CreateRecurringEventDto, UpsertSessionExceptionDto } from './sessions-rrule.dto';
 import { RequestWithUser } from '../../types/global';
 
@@ -59,20 +59,7 @@ export class SessionsController {
     return this.sessionsService.create(req.user!.userId, dto);
   }
 
-  /** @deprecated — kept for backward compatibility. Use POST /sessions/recurring-event instead. */
-  @UseGuards(AuthGuard('jwt'))
-  @Post('recurring')
-  @HttpCode(HttpStatus.CREATED)
-  createRecurring(@Request() req: RequestWithUser, @Body() dto: CreateRecurringSessionDto) {
-    const { startDateStr, frequency, untilDateStr, baseSession } = dto;
-    return this.sessionsService.createRecurring(
-      req.user!.userId,
-      baseSession,
-      startDateStr,
-      frequency,
-      untilDateStr,
-    );
-  }
+
 
   // ── RRULE-based recurrence ────────────────────────────────
 

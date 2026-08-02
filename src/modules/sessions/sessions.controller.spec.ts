@@ -12,7 +12,6 @@ describe('SessionsController', () => {
   beforeEach(async () => {
     service = {
       create: jest.fn(),
-      createRecurring: jest.fn(),
       createRecurringEvent: jest.fn(),
       removeRecurringEvent: jest.fn(),
       upsertSessionException: jest.fn(),
@@ -46,27 +45,7 @@ describe('SessionsController', () => {
     });
   });
 
-  describe('POST /recurring', () => {
-    it('should delegate to service.createRecurring with correct params', async () => {
-      const dto = {
-        baseSession: { durationMinutes: 60, type: 'In-Person', category: 'Workout', clientId: 'c1' },
-        startDateStr: '2025-01-06',
-        frequency: 'weekly' as const,
-        untilDateStr: '2025-02-03',
-      };
-      service.createRecurring!.mockResolvedValue([]);
 
-      await controller.createRecurring(req as any, dto as any);
-
-      expect(service.createRecurring).toHaveBeenCalledWith(
-        'trainer-uuid-1',
-        dto.baseSession,
-        '2025-01-06',
-        'weekly',
-        '2025-02-03',
-      );
-    });
-  });
 
   describe('POST /recurring-event', () => {
     it('should delegate to service.createRecurringEvent', async () => {

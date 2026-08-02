@@ -2,9 +2,8 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  ConflictException,
 } from '@nestjs/common';
-import { addDays, parseISO } from 'date-fns';
-import { v4 as uuidv4 } from 'uuid';
 
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService, type WorkHoursConfig } from '../settings/settings.service';
@@ -61,46 +60,71 @@ export class SessionsService {
   //  (kept for backward compatibility with old sessions)
   // ═══════════════════════════════════════════════════════════
 
+  private async validateSessionConflicts(
+    userId: string,
+    date: Date,
+    durationMinutes: number,
+    excludeSessionId?: string,
+  ) {
+    const sessionStart = date;
+    const sessionEnd = new Date(date.getTime() + durationMinutes * 60_000);
+
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(date);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const legacySessions = await this.prisma.session.findMany({
+      where: {
+        userId,
+        date: { gte: dayStart, lte: dayEnd },
+      },
+    });
+
+    const virtualSessions = await this.materializeRecurringSessionsForRange(
+      userId,
+      dayStart,
+      dayEnd,
+    );
+
+    const allSessions = [...legacySessions, ...virtualSessions];
+    for (const session of allSessions) {
+      if (excludeSessionId && session.id === excludeSessionId) continue;
+      
+      const sStart = new Date(session.date);
+      const sEnd = new Date(sStart.getTime() + session.durationMinutes * 60_000);
+
+      if (sessionStart < sEnd && sessionEnd > sStart) {
+        throw new ConflictException('Time slot is already occupied by another session');
+      }
+    }
+
+    const blocks = await this.availabilityBlocksService.materializeBlocksForRange(
+      userId,
+      dayStart,
+      dayEnd,
+    );
+
+    for (const block of blocks) {
+      const bStart = new Date(block.start);
+      const bEnd = new Date(block.end);
+
+      if (sessionStart < bEnd && sessionEnd > bStart) {
+        // @ts-ignore - assuming block has title as per instructions
+        throw new ConflictException(`Time slot is blocked by an availability block: ${block.title || 'Untitled'}`);
+      }
+    }
+  }
+
   async create(userId: string, data: CreateSessionDto) {
     const client = await this.prisma.client.findUnique({ where: { id: data.clientId } });
     if (client && client.userId !== userId) throw new ForbiddenException('Cliente inválido');
 
+    await this.validateSessionConflicts(userId, new Date(data.date), data.durationMinutes);
+
     return this.prisma.session.create({
       data: { ...data, userId },
     });
-  }
-
-  /** @deprecated Use createRecurringEvent instead */
-  async createRecurring(
-    userId: string,
-    baseSessionData: Omit<CreateSessionDto, 'date' | 'startDateStr' | 'frequency' | 'untilDateStr'>,
-    startDateStr: string,
-    frequency: 'weekly' | 'bi-weekly',
-    untilDateStr: string,
-  ) {
-    const sessionsToCreate = [];
-    const recurrenceId = `rec-${uuidv4()}`;
-
-    let currentDate = parseISO(startDateStr);
-    const untilDate = parseISO(untilDateStr);
-    const increment = frequency === 'weekly' ? 7 : 14;
-
-    while (currentDate <= untilDate) {
-      sessionsToCreate.push({
-        ...baseSessionData,
-        date: currentDate,
-        recurrenceId,
-        completed: false,
-        userId,
-      });
-      currentDate = addDays(currentDate, increment);
-    }
-
-    return this.prisma.$transaction(
-      sessionsToCreate.map((session) =>
-        this.prisma.session.create({ data: session }),
-      ),
-    );
   }
 
   // ═══════════════════════════════════════════════════════════

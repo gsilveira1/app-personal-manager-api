@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
-import { CreateSessionDto, CreateRecurringSessionDto, UpdateSessionScopeDto } from './sessions.dto';
+import { CreateSessionDto, UpdateSessionScopeDto } from './sessions.dto';
 
 describe('CreateSessionDto', () => {
   const createDto = (data: Record<string, any>): CreateSessionDto => {
@@ -67,45 +67,7 @@ describe('CreateSessionDto', () => {
   });
 });
 
-describe('CreateRecurringSessionDto', () => {
-  const createDto = (data: Record<string, any>): CreateRecurringSessionDto => {
-    return plainToInstance(CreateRecurringSessionDto, data);
-  };
 
-  it('should pass with valid data', async () => {
-    const dto = createDto({
-      baseSession: {
-        date: '2025-02-01T10:00:00.000Z',
-        durationMinutes: 60,
-        type: 'In-Person',
-        category: 'Workout',
-        clientId: '550e8400-e29b-41d4-a716-446655440000',
-      },
-      startDateStr: '2025-02-01',
-      frequency: 'weekly',
-      untilDateStr: '2025-03-01',
-    });
-    const errors = await validate(dto);
-    expect(errors).toHaveLength(0);
-  });
-
-  it('should fail with invalid frequency', async () => {
-    const dto = createDto({
-      baseSession: {
-        date: '2025-02-01T10:00:00.000Z',
-        durationMinutes: 60,
-        type: 'In-Person',
-        category: 'Workout',
-        clientId: '550e8400-e29b-41d4-a716-446655440000',
-      },
-      startDateStr: '2025-02-01',
-      frequency: 'monthly',
-      untilDateStr: '2025-03-01',
-    });
-    const errors = await validate(dto);
-    expect(errors.some(e => e.property === 'frequency')).toBe(true);
-  });
-});
 
 describe('UpdateSessionScopeDto', () => {
   it('should pass with scope single', async () => {

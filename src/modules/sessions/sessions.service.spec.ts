@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, ForbiddenException } from '@nestjs/common';
+import { NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 
 import { SessionsService } from './sessions.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -52,7 +52,7 @@ describe('SessionsService', () => {
     prisma = {
       session: {
         create: jest.fn(),
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         findUnique: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
@@ -62,7 +62,7 @@ describe('SessionsService', () => {
       },
       recurringEvent: {
         create: jest.fn(),
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         findUnique: jest.fn(),
         delete: jest.fn(),
       },
@@ -101,6 +101,8 @@ describe('SessionsService', () => {
   describe('create', () => {
     it('should create a single session', async () => {
       prisma.client.findUnique.mockResolvedValue(mockClient);
+      prisma.session.findMany.mockResolvedValue([]);
+      prisma.recurringEvent.findMany.mockResolvedValue([]);
       prisma.session.create.mockResolvedValue(mockSession);
 
       const dto = {
@@ -128,6 +130,8 @@ describe('SessionsService', () => {
 
     it('should succeed when client is not found (null)', async () => {
       prisma.client.findUnique.mockResolvedValue(null);
+      prisma.session.findMany.mockResolvedValue([]);
+      prisma.recurringEvent.findMany.mockResolvedValue([]);
       prisma.session.create.mockResolvedValue(mockSession);
 
       const dto = {
@@ -146,26 +150,69 @@ describe('SessionsService', () => {
     });
   });
 
-  describe('createRecurring (legacy)', () => {
-    it('should create multiple sessions with shared recurrenceId (weekly)', async () => {
-      prisma.session.create.mockImplementation((args: any) => Promise.resolve({ id: 'new-id', ...args.data }));
+  describe('create - conflict validation', () => {
+    it('should throw ConflictException when time overlaps with existing session', async () => {
+      prisma.client.findUnique.mockResolvedValue(mockClient);
+      prisma.recurringEvent.findMany.mockResolvedValue([]);
+      availabilityBlocksService.materializeBlocksForRange.mockResolvedValue([]);
+      
+      const existingDate = new Date('2025-02-01T10:30:00Z');
+      prisma.session.findMany.mockResolvedValue([
+        { ...mockSession, date: existingDate, durationMinutes: 60 }
+      ]);
 
-      const baseData = { durationMinutes: 60, type: 'In-Person', category: 'Workout', clientId };
-      const result = await service.createRecurring(userId, baseData as any, '2025-01-06', 'weekly', '2025-01-20');
+      const dto = {
+        date: '2025-02-01T10:00:00Z',
+        durationMinutes: 60,
+        type: 'In-Person',
+        category: 'Workout',
+        clientId,
+      };
 
-      // 3 weeks: Jan 6, 13, 20
-      expect(prisma.session.create).toHaveBeenCalledTimes(3);
-      expect(prisma.$transaction).toHaveBeenCalled();
+      await expect(service.create(userId, dto as any)).rejects.toThrow(ConflictException);
+      await expect(service.create(userId, dto as any)).rejects.toThrow('already occupied');
     });
 
-    it('should create sessions with bi-weekly frequency', async () => {
-      prisma.session.create.mockImplementation((args: any) => Promise.resolve({ id: 'new-id', ...args.data }));
+    it('should throw ConflictException when time overlaps with availability block', async () => {
+      prisma.client.findUnique.mockResolvedValue(mockClient);
+      prisma.recurringEvent.findMany.mockResolvedValue([]);
+      prisma.session.findMany.mockResolvedValue([]);
+      
+      const blockStart = new Date('2025-02-01T10:00:00Z');
+      const blockEnd = new Date('2025-02-01T11:00:00Z');
+      availabilityBlocksService.materializeBlocksForRange.mockResolvedValue([
+        { id: 'block-1', title: 'Reunião', start: blockStart.toISOString(), end: blockEnd.toISOString() }
+      ]);
 
-      const baseData = { durationMinutes: 60, type: 'In-Person', category: 'Workout', clientId };
-      const result = await service.createRecurring(userId, baseData as any, '2025-01-06', 'bi-weekly', '2025-02-03');
+      const dto = {
+        date: '2025-02-01T10:30:00Z',
+        durationMinutes: 30,
+        type: 'In-Person',
+        category: 'Workout',
+        clientId,
+      };
 
-      // Jan 6, Jan 20, Feb 3
-      expect(prisma.session.create).toHaveBeenCalledTimes(3);
+      await expect(service.create(userId, dto as any)).rejects.toThrow(ConflictException);
+      await expect(service.create(userId, dto as any)).rejects.toThrow('blocked by an availability block');
+    });
+
+    it('should allow creation when no conflicts exist', async () => {
+      prisma.client.findUnique.mockResolvedValue(mockClient);
+      prisma.recurringEvent.findMany.mockResolvedValue([]);
+      prisma.session.findMany.mockResolvedValue([]);
+      availabilityBlocksService.materializeBlocksForRange.mockResolvedValue([]);
+      prisma.session.create.mockResolvedValue(mockSession);
+
+      const dto = {
+        date: '2025-02-01T10:00:00Z',
+        durationMinutes: 60,
+        type: 'In-Person',
+        category: 'Workout',
+        clientId,
+      };
+
+      await service.create(userId, dto as any);
+      expect(prisma.session.create).toHaveBeenCalled();
     });
   });
 

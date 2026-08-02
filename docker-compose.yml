@@ -8,8 +8,10 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: gym_backend_db
+    ports:
+      - "5432:5432"  # Expose port for local development only
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}   # Required — set in .env (no default)
