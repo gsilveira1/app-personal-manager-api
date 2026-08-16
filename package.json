@@ -20,7 +20,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "db:reset": "ts-node -r dotenv/config prisma/reset.ts",
     "db:seed": "ts-node -r dotenv/config prisma/seed.ts",
-    "db:refresh": "npm run db:reset && npm run db:seed"
+    "db:refresh": "npm run db:reset && npm run db:seed",
+    "postinstall": "prisma generate"
   },
   "prisma": {
     "seed": "ts-node -r dotenv/config prisma/seed.ts"
