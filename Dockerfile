@@ -20,13 +20,10 @@ FROM base AS build
 RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y build-essential node-gyp openssl pkg-config python-is-python3
 
-# Install node modules
+# Copy package files and prisma schema
 COPY package-lock.json package.json ./
+COPY prisma ./prisma
 RUN npm ci --include=dev
-
-# Generate Prisma Client
-COPY prisma .
-RUN npx prisma generate
 
 # Copy application code
 COPY . .
