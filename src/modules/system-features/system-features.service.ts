@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreateSystemFeatureDto } from './system-features-create.dto';
-import { UpdateSystemFeatureDto } from './system-features-update.dto';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import { CreateSystemFeatureDto } from "./system-features-create.dto";
+import { UpdateSystemFeatureDto } from "./system-features-update.dto";
 
 @Injectable()
 export class SystemFeaturesService {
@@ -12,7 +16,9 @@ export class SystemFeaturesService {
       where: { key: data.key },
     });
     if (existing) {
-      throw new ConflictException(`Feature with key "${data.key}" already exists`);
+      throw new ConflictException(
+        `Feature with key "${data.key}" already exists`,
+      );
     }
 
     return this.prisma.systemFeature.create({ data });
@@ -20,7 +26,7 @@ export class SystemFeaturesService {
 
   async findAll() {
     return this.prisma.systemFeature.findMany({
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
       include: {
         _count: { select: { plans: true } },
       },
@@ -41,7 +47,7 @@ export class SystemFeaturesService {
   async findAllActive() {
     return this.prisma.systemFeature.findMany({
       where: { isActive: true },
-      orderBy: { name: 'asc' },
+      orderBy: { name: "asc" },
     });
   }
 

@@ -1,5 +1,13 @@
-import { IsString, IsIn, IsObject, ValidateNested, IsBoolean, IsInt, Min, Max } from 'class-validator';
-import { Type } from 'class-transformer';
+import {
+  IsString,
+  IsIn,
+  ValidateNested,
+  IsBoolean,
+  IsInt,
+  Min,
+  Max,
+} from "class-validator";
+import { Type } from "class-transformer";
 
 export class UpdateAiInstructionsDto {
   @IsString()
@@ -8,7 +16,9 @@ export class UpdateAiInstructionsDto {
 
 export class UpdateLanguageDto {
   @IsString()
-  @IsIn(['en', 'es', 'pt-BR'], { message: "language must be one of: 'en', 'es', 'pt-BR'" })
+  @IsIn(["en", "es", "pt-BR"], {
+    message: "language must be one of: 'en', 'es', 'pt-BR'",
+  })
   language!: string;
 }
 

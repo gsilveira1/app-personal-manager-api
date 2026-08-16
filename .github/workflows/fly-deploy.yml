@@ -1,17 +1,48 @@
-name: Continuous Deployment - Fly.io
+name: CI/CD - NestJS Backend (Fly.io)
 
 on:
+  workflow_dispatch:
   push:
     branches:
-      - main # Altere para 'master' se for o caso
+      - main
+      - master
 
 jobs:
+  # ----------------------------------------------------
+  # 1. Integração Contínua (Testes, Lint e Build)
+  # ----------------------------------------------------
+  validate:
+    name: Validate Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Linting
+        run: npm run lint
+
+      - name: Run Tests
+        run: npm run test
+
+      - name: Check Build
+        run: npm run build
+
+  # ----------------------------------------------------
+  # 2. Entrega Contínua (Deploy para o Fly.io)
+  # ----------------------------------------------------
   deploy:
     name: Deploy Application
     runs-on: ubuntu-latest
-    
-    # Se você utiliza Prisma/banco de dados, pode ser útil garantir que o deploy
-    # aconteça de forma sequencial para evitar concorrência em migrations
+    needs: validate
     concurrency: deploy-group
 
     steps:
@@ -20,12 +51,6 @@ jobs:
 
       - name: Setup Flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
-
-      # Opcional: Se seu projeto usa Prisma/PostgreSQL no Fly e precisa rodar migrations antes do deploy
-      - name: Run Migrations (Opcional)
-        run: flyctl deploy
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
       - name: Deploy to Fly.io
         run: flyctl deploy --remote-only

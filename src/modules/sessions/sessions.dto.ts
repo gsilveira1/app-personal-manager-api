@@ -1,16 +1,24 @@
-import { IsString, IsBoolean, IsDateString, IsInt, IsOptional, IsUUID, IsEnum, ValidateNested, IsObject } from 'class-validator';
-import { PartialType } from '@nestjs/mapped-types';
-import { Transform, Type } from 'class-transformer';
+import {
+  IsString,
+  IsBoolean,
+  IsDateString,
+  IsInt,
+  IsOptional,
+  IsUUID,
+  IsEnum,
+} from "class-validator";
+import { PartialType } from "@nestjs/mapped-types";
+import { Transform } from "class-transformer";
 
 export enum SessionType {
-  IN_PERSON = 'In-Person',
-  ONLINE = 'Online',
+  IN_PERSON = "In-Person",
+  ONLINE = "Online",
 }
 
 export enum SessionCategory {
-  WORKOUT = 'Workout',
-  CHECK_IN = 'Check-in',
-  EVALUATION = 'Evaluation',
+  WORKOUT = "Workout",
+  CHECK_IN = "Check-in",
+  EVALUATION = "Evaluation",
 }
 
 export class CreateSessionDto {
@@ -43,26 +51,9 @@ export class CreateSessionDto {
   completed?: boolean;
 }
 
-export class CreateRecurringSessionDto {
-  // Alterado de herança para composição para corresponder ao JSON do frontend
-  @IsObject()
-  @ValidateNested()
-  @Type(() => CreateSessionDto)
-  baseSession!: CreateSessionDto;
-
-  @IsDateString()
-  startDateStr!: string;
-
-  @IsEnum(['weekly', 'bi-weekly'])
-  frequency!: 'weekly' | 'bi-weekly';
-
-  @IsDateString()
-  untilDateStr!: string;
-}
-
 export class UpdateSessionDto extends PartialType(CreateSessionDto) {}
 
 export class UpdateSessionScopeDto extends UpdateSessionDto {
-  @IsEnum(['single', 'future'])
-  scope!: 'single' | 'future';
+  @IsEnum(["single", "future"])
+  scope!: "single" | "future";
 }

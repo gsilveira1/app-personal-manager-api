@@ -1,17 +1,17 @@
-import { 
-  IsString, 
-  IsEmail, 
-  IsEnum, 
-  IsOptional, 
-  IsDateString, 
-  IsObject, 
-  ValidateNested, 
-  IsArray, 
-  IsBoolean, 
-  IsUUID 
-} from 'class-validator';
-import { Transform, Type } from 'class-transformer';
-import { ClientStatus } from '@prisma/client';
+import {
+  IsString,
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  IsDateString,
+  IsObject,
+  ValidateNested,
+  IsArray,
+  IsBoolean,
+  IsUUID,
+} from "class-validator";
+import { Transform, Type } from "class-transformer";
+import { ClientStatus } from "@prisma/client";
 
 // DTO para validar o objeto JSON de histórico médico
 class MedicalHistoryDto {
@@ -76,7 +76,7 @@ export class CreateClientDto {
 
   @IsDateString()
   @IsOptional()
-  @Transform(({ value }) => value ? new Date(value).toISOString() : value)
+  @Transform(({ value }) => (value ? new Date(value).toISOString() : value))
   dateOfBirth?: string;
 
   @IsString()

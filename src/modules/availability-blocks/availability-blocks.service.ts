@@ -2,14 +2,14 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
-} from '@nestjs/common';
+} from "@nestjs/common";
 
-import { PrismaService } from '../prisma/prisma.service';
-import { expandRRuleForRange } from '../../utils/rrule-expander';
+import { PrismaService } from "../prisma/prisma.service";
+import { expandRRuleForRange } from "../../utils/rrule-expander";
 import {
   CreateAvailabilityBlockDto,
   UpdateAvailabilityBlockDto,
-} from './availability-blocks.dto';
+} from "./availability-blocks.dto";
 
 export interface MaterializedBlock {
   id: string;
@@ -30,7 +30,7 @@ export class AvailabilityBlocksService {
       data: {
         title: dto.title,
         rrule: dto.rrule ?? null,
-        timezone: dto.timezone ?? 'America/Sao_Paulo',
+        timezone: dto.timezone ?? "America/Sao_Paulo",
         dtstart: new Date(dto.dtstart),
         dtend: new Date(dto.dtend),
         notes: dto.notes ?? null,
@@ -47,7 +47,7 @@ export class AvailabilityBlocksService {
     const block = await this.prisma.availabilityBlock.findUnique({
       where: { id },
     });
-    if (!block) throw new NotFoundException('Block not found');
+    if (!block) throw new NotFoundException("Block not found");
     if (block.userId !== userId) throw new ForbiddenException();
 
     return this.prisma.availabilityBlock.update({
@@ -67,7 +67,7 @@ export class AvailabilityBlocksService {
     const block = await this.prisma.availabilityBlock.findUnique({
       where: { id },
     });
-    if (!block) throw new NotFoundException('Block not found');
+    if (!block) throw new NotFoundException("Block not found");
     if (block.userId !== userId) throw new ForbiddenException();
 
     return this.prisma.availabilityBlock.delete({ where: { id } });

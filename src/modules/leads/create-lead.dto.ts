@@ -1,21 +1,27 @@
-import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsEmail,
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from "class-validator";
 
 export class CreateLeadDto {
-    @IsString()
-    @IsNotEmpty()
-    name!: string;
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
 
-    @IsEmail()
-    email!: string;
+  @IsEmail()
+  email!: string;
 
-    @IsString()
-    @IsNotEmpty()
-    phone!: string;
+  @IsString()
+  @IsNotEmpty()
+  phone!: string;
 
-    @IsIn(['presencial', 'online', 'ambos'])
-    interest!: 'presencial' | 'online' | 'ambos';
+  @IsIn(["presencial", "online", "ambos"])
+  interest!: "presencial" | "online" | "ambos";
 
-    @IsString()
-    @IsOptional()
-    message?: string;
+  @IsString()
+  @IsOptional()
+  message?: string;
 }

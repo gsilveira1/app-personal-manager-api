@@ -1,7 +1,7 @@
-import { Module } from '@nestjs/common';
-import { SystemFeaturesService } from './system-features.service';
-import { SystemFeaturesController } from './system-features.controller';
-import { FeatureCheckService } from './feature-check.service';
+import { Module } from "@nestjs/common";
+import { SystemFeaturesService } from "./system-features.service";
+import { SystemFeaturesController } from "./system-features.controller";
+import { FeatureCheckService } from "./feature-check.service";
 
 @Module({
   controllers: [SystemFeaturesController],

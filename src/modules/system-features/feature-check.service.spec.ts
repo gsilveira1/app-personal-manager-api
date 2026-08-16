@@ -1,9 +1,9 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { Test, TestingModule } from "@nestjs/testing";
 
-import { FeatureCheckService } from './feature-check.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { FeatureCheckService } from "./feature-check.service";
+import { PrismaService } from "../prisma/prisma.service";
 
-describe('FeatureCheckService', () => {
+describe("FeatureCheckService", () => {
   let service: FeatureCheckService;
   let prisma: any;
 
@@ -29,51 +29,51 @@ describe('FeatureCheckService', () => {
 
   afterEach(() => jest.clearAllMocks());
 
-  it('should return false when client has no plan', async () => {
+  it("should return false when client has no plan", async () => {
     prisma.client.findUnique.mockResolvedValue({ planId: null });
 
-    const result = await service.hasFeature('client-1', 'ai_whatsapp_bot');
+    const result = await service.hasFeature("client-1", "ai_whatsapp_bot");
     expect(result).toBe(false);
     expect(prisma.planFeature.findFirst).not.toHaveBeenCalled();
   });
 
-  it('should return false when client does not exist', async () => {
+  it("should return false when client does not exist", async () => {
     prisma.client.findUnique.mockResolvedValue(null);
 
-    const result = await service.hasFeature('non-existent', 'ai_whatsapp_bot');
+    const result = await service.hasFeature("non-existent", "ai_whatsapp_bot");
     expect(result).toBe(false);
   });
 
-  it('should return true when plan has the active feature', async () => {
-    prisma.client.findUnique.mockResolvedValue({ planId: 'plan-1' });
+  it("should return true when plan has the active feature", async () => {
+    prisma.client.findUnique.mockResolvedValue({ planId: "plan-1" });
     prisma.planFeature.findFirst.mockResolvedValue({
-      planId: 'plan-1',
-      featureId: 'feature-1',
+      planId: "plan-1",
+      featureId: "feature-1",
     });
 
-    const result = await service.hasFeature('client-1', 'ai_whatsapp_bot');
+    const result = await service.hasFeature("client-1", "ai_whatsapp_bot");
     expect(result).toBe(true);
   });
 
-  it('should return false when plan does not have the feature', async () => {
-    prisma.client.findUnique.mockResolvedValue({ planId: 'plan-1' });
+  it("should return false when plan does not have the feature", async () => {
+    prisma.client.findUnique.mockResolvedValue({ planId: "plan-1" });
     prisma.planFeature.findFirst.mockResolvedValue(null);
 
-    const result = await service.hasFeature('client-1', 'nonexistent_feature');
+    const result = await service.hasFeature("client-1", "nonexistent_feature");
     expect(result).toBe(false);
   });
 
-  it('should check that feature is active', async () => {
-    prisma.client.findUnique.mockResolvedValue({ planId: 'plan-1' });
+  it("should check that feature is active", async () => {
+    prisma.client.findUnique.mockResolvedValue({ planId: "plan-1" });
     prisma.planFeature.findFirst.mockResolvedValue(null);
 
-    await service.hasFeature('client-1', 'ai_whatsapp_bot');
+    await service.hasFeature("client-1", "ai_whatsapp_bot");
 
     expect(prisma.planFeature.findFirst).toHaveBeenCalledWith({
       where: {
-        planId: 'plan-1',
+        planId: "plan-1",
         feature: {
-          key: 'ai_whatsapp_bot',
+          key: "ai_whatsapp_bot",
           isActive: true,
         },
       },

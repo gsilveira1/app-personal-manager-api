@@ -1,14 +1,14 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
 
-const AI_KEY = 'ai_prompt_instructions';
-const LANGUAGE_KEY = 'preferred_language';
-const WORK_HOURS_KEY = 'work_hours';
+const AI_KEY = "ai_prompt_instructions";
+const LANGUAGE_KEY = "preferred_language";
+const WORK_HOURS_KEY = "work_hours";
 
 export interface DaySchedule {
   enabled: boolean;
   start: string; // "HH:mm"
-  end: string;   // "HH:mm"
+  end: string; // "HH:mm"
 }
 
 export interface WorkHoursConfig {
@@ -23,13 +23,13 @@ export interface WorkHoursConfig {
 }
 
 const DEFAULT_WORK_HOURS: WorkHoursConfig = {
-  monday:    { enabled: true, start: '07:00', end: '19:00' },
-  tuesday:   { enabled: true, start: '07:00', end: '19:00' },
-  wednesday: { enabled: true, start: '07:00', end: '19:00' },
-  thursday:  { enabled: true, start: '07:00', end: '19:00' },
-  friday:    { enabled: true, start: '07:00', end: '19:00' },
-  saturday:  { enabled: true, start: '07:00', end: '19:00' },
-  sunday:    { enabled: false, start: '08:00', end: '12:00' },
+  monday: { enabled: true, start: "07:00", end: "19:00" },
+  tuesday: { enabled: true, start: "07:00", end: "19:00" },
+  wednesday: { enabled: true, start: "07:00", end: "19:00" },
+  thursday: { enabled: true, start: "07:00", end: "19:00" },
+  friday: { enabled: true, start: "07:00", end: "19:00" },
+  saturday: { enabled: true, start: "07:00", end: "19:00" },
+  sunday: { enabled: false, start: "08:00", end: "12:00" },
   slotDurationMinutes: 60,
 };
 
@@ -47,7 +47,7 @@ export class SettingsService {
         },
       },
     });
-    return { instructions: setting?.value || '' };
+    return { instructions: setting?.value || "" };
   }
 
   async updateAiInstructions(userId: string, instructions: string) {
@@ -62,7 +62,7 @@ export class SettingsService {
       create: {
         userId,
         key: AI_KEY,
-        value: instructions
+        value: instructions,
       },
     });
   }
@@ -71,10 +71,13 @@ export class SettingsService {
     const setting = await this.prisma.userSetting.findUnique({
       where: { userId_key: { userId, key: LANGUAGE_KEY } },
     });
-    return { language: setting?.value ?? 'pt-BR' };
+    return { language: setting?.value ?? "pt-BR" };
   }
 
-  async updateLanguage(userId: string, language: string): Promise<{ language: string }> {
+  async updateLanguage(
+    userId: string,
+    language: string,
+  ): Promise<{ language: string }> {
     const result = await this.prisma.userSetting.upsert({
       where: { userId_key: { userId, key: LANGUAGE_KEY } },
       update: { value: language },
@@ -95,7 +98,10 @@ export class SettingsService {
     }
   }
 
-  async updateWorkHours(userId: string, config: WorkHoursConfig): Promise<WorkHoursConfig> {
+  async updateWorkHours(
+    userId: string,
+    config: WorkHoursConfig,
+  ): Promise<WorkHoursConfig> {
     const value = JSON.stringify(config);
     await this.prisma.userSetting.upsert({
       where: { userId_key: { userId, key: WORK_HOURS_KEY } },

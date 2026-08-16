@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common';
-import { AvailabilityBlocksService } from './availability-blocks.service';
-import { AvailabilityBlocksController } from './availability-blocks.controller';
+import { Module } from "@nestjs/common";
+import { AvailabilityBlocksService } from "./availability-blocks.service";
+import { AvailabilityBlocksController } from "./availability-blocks.controller";
 
 @Module({
   controllers: [AvailabilityBlocksController],
