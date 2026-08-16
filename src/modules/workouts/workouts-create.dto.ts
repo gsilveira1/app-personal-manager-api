@@ -1,5 +1,13 @@
-import { IsString, IsArray, IsOptional, IsUUID, ValidateNested, IsInt, IsBoolean } from 'class-validator';
-import { Type } from 'class-transformer';
+import {
+  IsString,
+  IsArray,
+  IsOptional,
+  IsUUID,
+  ValidateNested,
+  IsInt,
+  IsBoolean,
+} from "class-validator";
+import { Type } from "class-transformer";
 
 class ExerciseDto {
   @IsString()

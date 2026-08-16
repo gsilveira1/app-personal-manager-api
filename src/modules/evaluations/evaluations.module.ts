@@ -1,7 +1,7 @@
-import { Module } from '@nestjs/common';
-import { EvaluationsService } from './evaluations.service';
-import { EvaluationsController } from './evaluations.controller';
-import { EvaluationsCalculatorService } from './evaluations-calculator.service';
+import { Module } from "@nestjs/common";
+import { EvaluationsService } from "./evaluations.service";
+import { EvaluationsController } from "./evaluations.controller";
+import { EvaluationsCalculatorService } from "./evaluations-calculator.service";
 
 @Module({
   controllers: [EvaluationsController],

@@ -1,9 +1,20 @@
-import { IsString, IsInt, IsNumber, IsOptional, IsBoolean, IsIn, IsArray, IsUUID, Min, Max } from 'class-validator';
+import {
+  IsString,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsBoolean,
+  IsIn,
+  IsArray,
+  IsUUID,
+  Min,
+  Max,
+} from "class-validator";
 
 export class CreatePlanDto {
   @IsString()
-  @IsIn(['PRESENCIAL', 'CONSULTORIA'])
-  type!: 'PRESENCIAL' | 'CONSULTORIA';
+  @IsIn(["PRESENCIAL", "CONSULTORIA"])
+  type!: "PRESENCIAL" | "CONSULTORIA";
 
   @IsString()
   name!: string;
@@ -28,6 +39,6 @@ export class CreatePlanDto {
 
   @IsOptional()
   @IsArray()
-  @IsUUID('4', { each: true })
+  @IsUUID("4", { each: true })
   featureIds?: string[];
 }

@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreateWorkoutDto } from './workouts-create.dto';
-import { Prisma } from '@prisma/client';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import { CreateWorkoutDto } from "./workouts-create.dto";
+import { Prisma } from "@prisma/client";
 
 @Injectable()
 export class WorkoutsService {
@@ -26,7 +30,7 @@ export class WorkoutsService {
       include: {
         client: { select: { name: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
   }
 
@@ -42,10 +46,10 @@ export class WorkoutsService {
 
   async update(userId: string, id: string, data: Partial<CreateWorkoutDto>) {
     await this.findOne(userId, id); // Checa permissão
-    
+
     const { exercises, ...rest } = data;
     const updateData: any = { ...rest };
-    
+
     if (exercises) {
       updateData.exercises = exercises as unknown as Prisma.InputJsonValue[];
     }

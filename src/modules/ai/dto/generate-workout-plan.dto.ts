@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsObject } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsObject } from "class-validator";
 
 export class GenerateWorkoutPlanDto {
   @IsString()

@@ -1,17 +1,22 @@
-import { Injectable, ConflictException, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import {
+  Injectable,
+  ConflictException,
+  NotFoundException,
+  ForbiddenException,
+} from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 
-import { PrismaService } from '../prisma/prisma.service';
-import { GcsService } from '../gcs/gcs.service';
-import { CreateClientDto } from './clients-create.dto';
-import { UpdateClientDto } from './clients-update.dto';
+import { PrismaService } from "../prisma/prisma.service";
+import { GcsService } from "../gcs/gcs.service";
+import { CreateClientDto } from "./clients-create.dto";
+import { UpdateClientDto } from "./clients-update.dto";
 
 @Injectable()
 export class ClientsService {
   constructor(
     private prisma: PrismaService,
     private gcs: GcsService,
-  ) { }
+  ) {}
 
   async create(userId: string, data: CreateClientDto) {
     try {
@@ -27,8 +32,8 @@ export class ClientsService {
         },
       });
     } catch (error: any) {
-      if (error.code === 'P2002') {
-        throw new ConflictException('Email already exists');
+      if (error.code === "P2002") {
+        throw new ConflictException("Email already exists");
       }
       throw error;
     }
@@ -38,9 +43,9 @@ export class ClientsService {
     return this.prisma.client.findMany({
       where: { userId }, // Filtra apenas clientes deste utilizador
       include: {
-        plan: { select: { name: true } }
+        plan: { select: { name: true } },
       },
-      orderBy: { name: 'asc' }
+      orderBy: { name: "asc" },
     });
   }
 
@@ -59,7 +64,7 @@ export class ClientsService {
 
     // Verificação de Segurança
     if (client.userId !== userId) {
-      throw new ForbiddenException('Acesso negado a este cliente');
+      throw new ForbiddenException("Acesso negado a este cliente");
     }
 
     return client;
@@ -90,8 +95,8 @@ export class ClientsService {
 
   async findLeads(userId: string) {
     return this.prisma.client.findMany({
-      where: { userId, status: 'Lead' },
-      orderBy: { createdAt: 'desc' },
+      where: { userId, status: "Lead" },
+      orderBy: { createdAt: "desc" },
     });
   }
 
@@ -100,16 +105,20 @@ export class ClientsService {
     return this.prisma.client.update({
       where: { id },
       data: {
-        status: 'Active',
+        status: "Active",
         ...(planId ? { planId } : {}),
       },
     });
   }
 
-  async generateAvatarUploadUrl(userId: string, clientId: string, contentType: string) {
+  async generateAvatarUploadUrl(
+    userId: string,
+    clientId: string,
+    contentType: string,
+  ) {
     await this.findOne(userId, clientId); // Ensures existence and ownership
 
-    const ext = contentType.split('/')[1];
+    const ext = contentType.split("/")[1];
     const objectPath = `avatars/${userId}/${clientId}.${ext}`;
 
     return this.gcs.generateSignedUploadUrl(objectPath, contentType);

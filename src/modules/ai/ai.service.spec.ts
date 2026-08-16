@@ -1,12 +1,12 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
-import { InternalServerErrorException } from '@nestjs/common';
-import { AiService } from './ai.service';
-import { AiController } from './ai.controller';
+import { Test, TestingModule } from "@nestjs/testing";
+import { ConfigService } from "@nestjs/config";
+import { InternalServerErrorException } from "@nestjs/common";
+import { AiService } from "./ai.service";
+import { AiController } from "./ai.controller";
 
 const mockGenerateContent = jest.fn();
 
-jest.mock('@google/genai', () => {
+jest.mock("@google/genai", () => {
   return {
     GoogleGenAI: jest.fn().mockImplementation(() => ({
       models: {
@@ -14,15 +14,15 @@ jest.mock('@google/genai', () => {
       },
     })),
     Type: {
-      OBJECT: 'OBJECT',
-      STRING: 'STRING',
-      NUMBER: 'NUMBER',
-      ARRAY: 'ARRAY',
+      OBJECT: "OBJECT",
+      STRING: "STRING",
+      NUMBER: "NUMBER",
+      ARRAY: "ARRAY",
     },
   };
 });
 
-describe('AiService & AiController', () => {
+describe("AiService & AiController", () => {
   let service: AiService;
   let controller: AiController;
 
@@ -37,7 +37,7 @@ describe('AiService & AiController', () => {
           provide: ConfigService,
           useValue: {
             get: (key: string) => {
-              if (key === 'GEMINI_API_KEY') return 'test-key';
+              if (key === "GEMINI_API_KEY") return "test-key";
               return null;
             },
           },
@@ -49,18 +49,25 @@ describe('AiService & AiController', () => {
     controller = module.get<AiController>(AiController);
   });
 
-  it('should be defined', () => {
+  it("should be defined", () => {
     expect(service).toBeDefined();
     expect(controller).toBeDefined();
   });
 
-  describe('generateWorkoutPlan', () => {
-    it('should generate structured workout plan JSON', async () => {
+  describe("generateWorkoutPlan", () => {
+    it("should generate structured workout plan JSON", async () => {
       const mockResult = {
-        title: 'Treino de Hipertrofia',
-        description: 'Foco em membros superiores',
-        exercises: [{ name: 'Supino Reto', sets: 4, reps: '10-12', notes: 'Carga moderada' }],
-        tags: ['Hipertrofia', 'Peito'],
+        title: "Treino de Hipertrofia",
+        description: "Foco em membros superiores",
+        exercises: [
+          {
+            name: "Supino Reto",
+            sets: 4,
+            reps: "10-12",
+            notes: "Carga moderada",
+          },
+        ],
+        tags: ["Hipertrofia", "Peito"],
       };
 
       mockGenerateContent.mockResolvedValueOnce({
@@ -68,9 +75,9 @@ describe('AiService & AiController', () => {
       });
 
       const dto = {
-        clientName: 'Maria Silva',
-        goal: 'Hipertrofia',
-        experienceLevel: 'Intermediário',
+        clientName: "Maria Silva",
+        goal: "Hipertrofia",
+        experienceLevel: "Intermediário",
         daysPerWeek: 4,
       };
 
@@ -79,27 +86,34 @@ describe('AiService & AiController', () => {
       expect(mockGenerateContent).toHaveBeenCalled();
     });
 
-    it('should throw InternalServerErrorException when AI returns empty text', async () => {
-      mockGenerateContent.mockResolvedValueOnce({ text: '' });
+    it("should throw InternalServerErrorException when AI returns empty text", async () => {
+      mockGenerateContent.mockResolvedValueOnce({ text: "" });
 
       const dto = {
-        clientName: 'Maria Silva',
-        goal: 'Emagrecimento',
-        experienceLevel: 'Iniciante',
+        clientName: "Maria Silva",
+        goal: "Emagrecimento",
+        experienceLevel: "Iniciante",
         daysPerWeek: 3,
       };
 
-      await expect(controller.generateWorkoutPlan(dto)).rejects.toThrow(InternalServerErrorException);
+      await expect(controller.generateWorkoutPlan(dto)).rejects.toThrow(
+        InternalServerErrorException,
+      );
     });
   });
 
-  describe('generateWorkoutInsights', () => {
-    it('should generate structured workout insights JSON', async () => {
+  describe("generateWorkoutInsights", () => {
+    it("should generate structured workout insights JSON", async () => {
       const mockResult = {
         insights: [
           {
-            suggestion: { name: 'Agachamento Búlgaro', sets: 3, reps: '10-12', notes: 'Estabilidade' },
-            reason: 'Fortalecer quadríceps respeitando sensibilidade no joelho',
+            suggestion: {
+              name: "Agachamento Búlgaro",
+              sets: 3,
+              reps: "10-12",
+              notes: "Estabilidade",
+            },
+            reason: "Fortalecer quadríceps respeitando sensibilidade no joelho",
           },
         ],
       };
@@ -109,7 +123,7 @@ describe('AiService & AiController', () => {
       });
 
       const dto = {
-        client: { id: 'c1', name: 'Maria Silva', goal: 'Emagrecimento' },
+        client: { id: "c1", name: "Maria Silva", goal: "Emagrecimento" },
         archivedPlans: [],
       };
 

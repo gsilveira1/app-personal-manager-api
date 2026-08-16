@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from "@nestjs/common";
 
-import { PrismaService } from '../prisma/prisma.service';
-import { CreatePlanDto } from './plans-create.dto';
+import { PrismaService } from "../prisma/prisma.service";
+import { CreatePlanDto } from "./plans-create.dto";
 
 @Injectable()
 export class PlansService {
@@ -109,7 +113,7 @@ export class PlansService {
     });
 
     const presencial = plans
-      .filter((p) => p.type === 'PRESENCIAL')
+      .filter((p) => p.type === "PRESENCIAL")
       .map((p) => ({
         id: p.id,
         name: p.name,
@@ -124,7 +128,7 @@ export class PlansService {
       }));
 
     const consultoria = plans
-      .filter((p) => p.type === 'CONSULTORIA')
+      .filter((p) => p.type === "CONSULTORIA")
       .map((p) => ({
         id: p.id,
         name: p.name,

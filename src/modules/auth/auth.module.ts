@@ -1,12 +1,12 @@
-import { Module } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { AuthController } from './auth.controller';
-import { PassportModule } from '@nestjs/passport';
-import { JwtModule } from '@nestjs/jwt';
-import { JwtStrategy } from './jwt.strategy';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { UsersModule } from '../users/users.module'; // Importando UsersModule
-import { UsersService } from '../users/users.service';
+import { Module } from "@nestjs/common";
+import { AuthService } from "./auth.service";
+import { AuthController } from "./auth.controller";
+import { PassportModule } from "@nestjs/passport";
+import { JwtModule } from "@nestjs/jwt";
+import { JwtStrategy } from "./jwt.strategy";
+import { ConfigModule, ConfigService } from "@nestjs/config";
+import { UsersModule } from "../users/users.module"; // Importando UsersModule
+import { UsersService } from "../users/users.service";
 
 @Module({
   imports: [
@@ -15,8 +15,8 @@ import { UsersService } from '../users/users.service';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'segredo_padrao_dev',
-        signOptions: { expiresIn: '1d' },
+        secret: configService.get<string>("JWT_SECRET") || "segredo_padrao_dev",
+        signOptions: { expiresIn: "1d" },
       }),
       inject: [ConfigService],
     }),

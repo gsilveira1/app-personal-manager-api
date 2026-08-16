@@ -3,22 +3,28 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
-} from '@nestjs/common';
+} from "@nestjs/common";
 
-import { PrismaService } from '../prisma/prisma.service';
-import { SettingsService, type WorkHoursConfig } from '../settings/settings.service';
-import { AvailabilityBlocksService } from '../availability-blocks/availability-blocks.service';
-import { expandRRuleForRange } from '../../utils/rrule-expander';
-import { CreateSessionDto, UpdateSessionDto } from './sessions.dto';
-import { CreateRecurringEventDto, UpsertSessionExceptionDto } from './sessions-rrule.dto';
-import { Session } from '@prisma/client';
+import { PrismaService } from "../prisma/prisma.service";
+import {
+  SettingsService,
+  type WorkHoursConfig,
+} from "../settings/settings.service";
+import { AvailabilityBlocksService } from "../availability-blocks/availability-blocks.service";
+import { expandRRuleForRange } from "../../utils/rrule-expander";
+import { CreateSessionDto, UpdateSessionDto } from "./sessions.dto";
+import {
+  CreateRecurringEventDto,
+  UpsertSessionExceptionDto,
+} from "./sessions-rrule.dto";
+import { Session } from "@prisma/client";
 
 // ─── Shape returned when materializing recurring events ─────────────────────
 export interface MaterializedSession {
-  id: string;               // "<recurringEventId>_<ISO>" — virtual id
+  id: string; // "<recurringEventId>_<ISO>" — virtual id
   recurringEventId: string;
   originalStartTime: string; // ISO — the "canonical" date per the RRULE
-  date: string;             // ISO — actual start (may be overridden by exception)
+  date: string; // ISO — actual start (may be overridden by exception)
   durationMinutes: number;
   type: string;
   category: string;
@@ -28,23 +34,28 @@ export interface MaterializedSession {
   clientId: string;
   userId: string;
   linkedWorkoutId: string | null;
-  recurrenceId: string;     // same as recurringEventId (for UI compat)
+  recurrenceId: string; // same as recurringEventId (for UI compat)
   isVirtual: true;
   exceptionId: string | null;
 }
 
 // ─── Union type for the calendar ─────────────────────────────────────────────
-export type CalendarSession = (Session & { isVirtual?: false }) | MaterializedSession;
+export type CalendarSession =
+  | (Session & { isVirtual?: false })
+  | MaterializedSession;
 
 // Map JS getDay() (0=Sun) → config key
-const DAY_MAP: Record<number, keyof Omit<WorkHoursConfig, 'slotDurationMinutes'>> = {
-  0: 'sunday',
-  1: 'monday',
-  2: 'tuesday',
-  3: 'wednesday',
-  4: 'thursday',
-  5: 'friday',
-  6: 'saturday',
+const DAY_MAP: Record<
+  number,
+  keyof Omit<WorkHoursConfig, "slotDurationMinutes">
+> = {
+  0: "sunday",
+  1: "monday",
+  2: "tuesday",
+  3: "wednesday",
+  4: "thursday",
+  5: "friday",
+  6: "saturday",
 };
 
 @Injectable()
@@ -53,7 +64,7 @@ export class SessionsService {
     private prisma: PrismaService,
     private settingsService: SettingsService,
     private availabilityBlocksService: AvailabilityBlocksService,
-  ) { }
+  ) {}
 
   // ═══════════════════════════════════════════════════════════
   //  LEGACY: single-instance + eager-create recurrence
@@ -90,20 +101,25 @@ export class SessionsService {
     const allSessions = [...legacySessions, ...virtualSessions];
     for (const session of allSessions) {
       if (excludeSessionId && session.id === excludeSessionId) continue;
-      
+
       const sStart = new Date(session.date);
-      const sEnd = new Date(sStart.getTime() + session.durationMinutes * 60_000);
+      const sEnd = new Date(
+        sStart.getTime() + session.durationMinutes * 60_000,
+      );
 
       if (sessionStart < sEnd && sessionEnd > sStart) {
-        throw new ConflictException('Time slot is already occupied by another session');
+        throw new ConflictException(
+          "Time slot is already occupied by another session",
+        );
       }
     }
 
-    const blocks = await this.availabilityBlocksService.materializeBlocksForRange(
-      userId,
-      dayStart,
-      dayEnd,
-    );
+    const blocks =
+      await this.availabilityBlocksService.materializeBlocksForRange(
+        userId,
+        dayStart,
+        dayEnd,
+      );
 
     for (const block of blocks) {
       const bStart = new Date(block.start);
@@ -111,16 +127,25 @@ export class SessionsService {
 
       if (sessionStart < bEnd && sessionEnd > bStart) {
         // @ts-ignore - assuming block has title as per instructions
-        throw new ConflictException(`Time slot is blocked by an availability block: ${block.title || 'Untitled'}`);
+        throw new ConflictException(
+          `Time slot is blocked by an availability block: ${block.title || "Untitled"}`,
+        );
       }
     }
   }
 
   async create(userId: string, data: CreateSessionDto) {
-    const client = await this.prisma.client.findUnique({ where: { id: data.clientId } });
-    if (client && client.userId !== userId) throw new ForbiddenException('Cliente inválido');
+    const client = await this.prisma.client.findUnique({
+      where: { id: data.clientId },
+    });
+    if (client && client.userId !== userId)
+      throw new ForbiddenException("Cliente inválido");
 
-    await this.validateSessionConflicts(userId, new Date(data.date), data.durationMinutes);
+    await this.validateSessionConflicts(
+      userId,
+      new Date(data.date),
+      data.durationMinutes,
+    );
 
     return this.prisma.session.create({
       data: { ...data, userId },
@@ -136,11 +161,24 @@ export class SessionsService {
    * The RRULE string controls all future expansions.
    */
   async createRecurringEvent(userId: string, dto: CreateRecurringEventDto) {
-    const { rrule, timezone, dtstart, durationMinutes, type, category, clientId, linkedWorkoutId, notes } = dto;
+    const {
+      rrule,
+      timezone,
+      dtstart,
+      durationMinutes,
+      type,
+      category,
+      clientId,
+      linkedWorkoutId,
+      notes,
+    } = dto;
 
     // Verify ownership
-    const client = await this.prisma.client.findUnique({ where: { id: clientId } });
-    if (!client || client.userId !== userId) throw new ForbiddenException('Cliente inválido');
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+    });
+    if (!client || client.userId !== userId)
+      throw new ForbiddenException("Cliente inválido");
 
     return this.prisma.recurringEvent.create({
       data: {
@@ -206,7 +244,9 @@ export class SessionsService {
         const exception = event.exceptions.find(
           (ex) =>
             !ex.cancelled &&
-            Math.abs(new Date(ex.originalStartTime).getTime() - occurrence.getTime()) < 60_000,
+            Math.abs(
+              new Date(ex.originalStartTime).getTime() - occurrence.getTime(),
+            ) < 60_000,
         );
 
         materialized.push({
@@ -243,7 +283,7 @@ export class SessionsService {
     const event = await this.prisma.recurringEvent.findUnique({
       where: { id: dto.recurringEventId },
     });
-    if (!event) throw new NotFoundException('Recurring event not found');
+    if (!event) throw new NotFoundException("Recurring event not found");
     if (event.userId !== userId) throw new ForbiddenException();
 
     return this.prisma.sessionException.upsert({
@@ -276,7 +316,9 @@ export class SessionsService {
    * Delete a recurring event entirely (all future instances disappear).
    */
   async removeRecurringEvent(userId: string, id: string) {
-    const event = await this.prisma.recurringEvent.findUnique({ where: { id } });
+    const event = await this.prisma.recurringEvent.findUnique({
+      where: { id },
+    });
     if (!event) throw new NotFoundException();
     if (event.userId !== userId) throw new ForbiddenException();
     return this.prisma.recurringEvent.delete({ where: { id } });
@@ -300,18 +342,22 @@ export class SessionsService {
         client: { select: { name: true, avatar: true } },
         workout: { select: { title: true } },
       },
-      orderBy: { date: 'asc' },
+      orderBy: { date: "asc" },
     });
 
     // Gracefully fall back if the recurring_event table doesn't exist yet
     // (i.e. migration hasn't been run)
     let virtualSessions: MaterializedSession[] = [];
     try {
-      virtualSessions = await this.materializeRecurringSessionsForRange(userId, rangeStart, rangeEnd);
+      virtualSessions = await this.materializeRecurringSessionsForRange(
+        userId,
+        rangeStart,
+        rangeEnd,
+      );
     } catch (err: any) {
       // P2021 = table does not exist, ignore silently
-      if (!err?.code || err.code !== 'P2021') {
-        console.warn('[SessionsService] materialize skipped:', err?.message);
+      if (!err?.code || err.code !== "P2021") {
+        console.warn("[SessionsService] materialize skipped:", err?.message);
       }
     }
 
@@ -328,12 +374,21 @@ export class SessionsService {
 
     const legacySessions = await this.prisma.session.findMany({
       where: { userId, date: { gte: rangeStart, lte: rangeEnd } },
-      select: { date: true, durationMinutes: true, type: true, completed: true },
+      select: {
+        date: true,
+        durationMinutes: true,
+        type: true,
+        completed: true,
+      },
     });
 
     let virtualSessions: MaterializedSession[] = [];
     try {
-      virtualSessions = await this.materializeRecurringSessionsForRange(userId, rangeStart, rangeEnd);
+      virtualSessions = await this.materializeRecurringSessionsForRange(
+        userId,
+        rangeStart,
+        rangeEnd,
+      );
     } catch {
       // Ignore — table may not exist yet
     }
@@ -341,7 +396,11 @@ export class SessionsService {
     // Load availability blocks
     let blocks: { start: string; end: string }[] = [];
     try {
-      blocks = await this.availabilityBlocksService.materializeBlocksForRange(userId, rangeStart, rangeEnd);
+      blocks = await this.availabilityBlocksService.materializeBlocksForRange(
+        userId,
+        rangeStart,
+        rangeEnd,
+      );
     } catch {
       // Ignore — table may not exist yet
     }
@@ -368,7 +427,7 @@ export class SessionsService {
     const slots: Array<{
       date: string;
       time: string;
-      type: 'In-Person' | 'Online';
+      type: "In-Person" | "Online";
       available: boolean;
     }> = [];
 
@@ -378,12 +437,16 @@ export class SessionsService {
       const dayConfig = workHours[dayKey];
 
       if (dayConfig.enabled) {
-        const [startHour, startMin] = dayConfig.start.split(':').map(Number);
-        const [endHour, endMin] = dayConfig.end.split(':').map(Number);
+        const [startHour, startMin] = dayConfig.start.split(":").map(Number);
+        const [endHour, endMin] = dayConfig.end.split(":").map(Number);
         const dayStartMinutes = startHour * 60 + startMin;
         const dayEndMinutes = endHour * 60 + endMin;
 
-        for (let mins = dayStartMinutes; mins + slotDuration <= dayEndMinutes + slotDuration; mins += slotDuration) {
+        for (
+          let mins = dayStartMinutes;
+          mins + slotDuration <= dayEndMinutes + slotDuration;
+          mins += slotDuration
+        ) {
           const slotHour = Math.floor(mins / 60);
           const slotMin = mins % 60;
 
@@ -392,7 +455,11 @@ export class SessionsService {
           const slotEnd = new Date(slotStart.getTime() + slotDuration * 60_000);
 
           // Don't exceed the day's end time
-          if (slotEnd > new Date(new Date(current).setHours(endHour, endMin, 0, 0)) && mins !== dayEndMinutes) {
+          if (
+            slotEnd >
+              new Date(new Date(current).setHours(endHour, endMin, 0, 0)) &&
+            mins !== dayEndMinutes
+          ) {
             continue;
           }
 
@@ -406,9 +473,9 @@ export class SessionsService {
 
           if (!isOccupied && !isBlocked) {
             slots.push({
-              date: slotStart.toISOString().split('T')[0],
-              time: `${String(slotHour).padStart(2, '0')}:${String(slotMin).padStart(2, '0')}`,
-              type: 'In-Person',
+              date: slotStart.toISOString().split("T")[0],
+              time: `${String(slotHour).padStart(2, "0")}:${String(slotMin).padStart(2, "0")}`,
+              type: "In-Person",
               available: true,
             });
           }
@@ -431,7 +498,7 @@ export class SessionsService {
         client: { select: { name: true, avatar: true } },
         workout: { select: { title: true } },
       },
-      orderBy: { date: 'asc' },
+      orderBy: { date: "asc" },
     });
   }
 
@@ -446,15 +513,15 @@ export class SessionsService {
     userId: string,
     id: string,
     data: UpdateSessionDto,
-    scope: 'single' | 'future',
+    scope: "single" | "future",
   ) {
     const targetSession = await this.findOne(userId, id);
 
-    if (scope === 'single' || !targetSession.recurrenceId) {
+    if (scope === "single" || !targetSession.recurrenceId) {
       return this.prisma.session.update({ where: { id }, data });
     }
 
-    if (scope === 'future') {
+    if (scope === "future") {
       const originalDate = targetSession.date;
       const futureSessions = await this.prisma.session.findMany({
         where: {

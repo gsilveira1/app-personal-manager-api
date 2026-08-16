@@ -1,9 +1,13 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { CreateEvaluationDto } from './evaluations-create.dto';
-import { UpdateEvaluationDto } from './evaluations-update.dto';
-import { EvaluationsCalculatorService } from './evaluations-calculator.service';
-import { Prisma } from '@prisma/client';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
+import { CreateEvaluationDto } from "./evaluations-create.dto";
+import { UpdateEvaluationDto } from "./evaluations-update.dto";
+import { EvaluationsCalculatorService } from "./evaluations-calculator.service";
+import { Prisma } from "@prisma/client";
 
 @Injectable()
 export class EvaluationsService {
@@ -19,22 +23,24 @@ export class EvaluationsService {
     });
 
     if (!client) {
-      throw new NotFoundException('Cliente não encontrado.');
+      throw new NotFoundException("Cliente não encontrado.");
     }
 
     if (client.userId !== userId) {
-      throw new ForbiddenException('Não tem permissão para criar avaliações para este cliente.');
+      throw new ForbiddenException(
+        "Não tem permissão para criar avaliações para este cliente.",
+      );
     }
 
     const { perimeters, skinfolds, ...rest } = data;
-    
+
     // Auto-calculate body composition metrics if skinfolds & weight are available
     let bodyFatPercentage = data.bodyFatPercentage;
     let leanMass = data.leanMass;
     let fatMass = data.fatMass;
     let bodyDensity = data.bodyDensity;
-    let protocol = data.protocol || 'POLLOCK_3';
-    let equation = data.equation || 'SIRI';
+    let protocol = data.protocol || "POLLOCK_3";
+    let equation = data.equation || "SIRI";
 
     if (skinfolds && Object.keys(skinfolds).length > 0 && data.weight > 0) {
       // Calculate age from dateOfBirth if available
@@ -46,7 +52,7 @@ export class EvaluationsService {
       }
 
       const calculated = this.calculatorService.calculate({
-        gender: 'M', // Client model gender or default
+        gender: "M", // Client model gender or default
         age,
         weight: data.weight,
         height: data.height,
@@ -64,8 +70,14 @@ export class EvaluationsService {
       equation = calculated.equationUsed;
     }
 
-    const perimetersJson = perimeters && Object.keys(perimeters).length > 0 ? (perimeters as unknown as Prisma.InputJsonValue) : undefined;
-    const skinfoldsJson = skinfolds && Object.keys(skinfolds).length > 0 ? (skinfolds as unknown as Prisma.InputJsonValue) : undefined;
+    const perimetersJson =
+      perimeters && Object.keys(perimeters).length > 0
+        ? (perimeters as unknown as Prisma.InputJsonValue)
+        : undefined;
+    const skinfoldsJson =
+      skinfolds && Object.keys(skinfolds).length > 0
+        ? (skinfolds as unknown as Prisma.InputJsonValue)
+        : undefined;
 
     return this.prisma.evaluation.create({
       data: {
@@ -93,7 +105,7 @@ export class EvaluationsService {
       include: {
         client: { select: { name: true, avatar: true } },
       },
-      orderBy: { date: 'desc' },
+      orderBy: { date: "desc" },
     });
   }
 
@@ -109,7 +121,7 @@ export class EvaluationsService {
 
     // Verifica propriedade através do cliente
     if (evaluation.client.userId !== userId) {
-      throw new ForbiddenException('Acesso negado a esta avaliação.');
+      throw new ForbiddenException("Acesso negado a esta avaliação.");
     }
 
     return evaluation;
@@ -140,17 +152,18 @@ export class EvaluationsService {
       }
 
       const calculated = this.calculatorService.calculate({
-        gender: 'M',
+        gender: "M",
         age,
         weight,
         height: data.height ?? existing.height ?? undefined,
         skinfolds: skinfoldsData,
         perimeters: (perimeters as any) ?? existing.perimeters,
-        protocol: data.protocol ?? existing.protocol ?? 'POLLOCK_3',
-        equation: data.equation ?? existing.equation ?? 'SIRI',
+        protocol: data.protocol ?? existing.protocol ?? "POLLOCK_3",
+        equation: data.equation ?? existing.equation ?? "SIRI",
       });
 
-      if (!data.bodyFatPercentage) updateData.bodyFatPercentage = calculated.bodyFatPercentage;
+      if (!data.bodyFatPercentage)
+        updateData.bodyFatPercentage = calculated.bodyFatPercentage;
       if (!data.leanMass) updateData.leanMass = calculated.leanMass;
       if (!data.fatMass) updateData.fatMass = calculated.fatMass;
       if (!data.bodyDensity) updateData.bodyDensity = calculated.bodyDensity;

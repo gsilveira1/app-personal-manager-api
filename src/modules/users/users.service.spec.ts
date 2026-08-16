@@ -1,29 +1,30 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, NotFoundException } from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
+import { Test, TestingModule } from "@nestjs/testing";
+import { ConflictException, NotFoundException } from "@nestjs/common";
+import * as bcrypt from "bcrypt";
 
-import { UsersService } from './users.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { GcsService } from '../gcs/gcs.service';
+import { UsersService } from "./users.service";
+import { PrismaService } from "../prisma/prisma.service";
+import { GcsService } from "../gcs/gcs.service";
 
-jest.mock('bcrypt');
+jest.mock("bcrypt");
 
-describe('UsersService', () => {
+describe("UsersService", () => {
   let service: UsersService;
   let prisma: any;
   let gcs: any;
 
   const mockUser = {
-    id: 'user-uuid-1',
-    name: 'João Silva',
-    email: 'joao@example.com',
-    password: '$2b$10$hashedpassword',
-    role: 'user',
-    avatar: 'https://storage.googleapis.com/bucket/avatars/users/user-uuid-1.png',
-    phone: '5551999999999',
-    bio: 'Personal Trainer Especialista',
-    createdAt: new Date('2025-01-01'),
-    updatedAt: new Date('2025-01-01'),
+    id: "user-uuid-1",
+    name: "João Silva",
+    email: "joao@example.com",
+    password: "$2b$10$hashedpassword",
+    role: "user",
+    avatar:
+      "https://storage.googleapis.com/bucket/avatars/users/user-uuid-1.png",
+    phone: "5551999999999",
+    bio: "Personal Trainer Especialista",
+    createdAt: new Date("2025-01-01"),
+    updatedAt: new Date("2025-01-01"),
   };
 
   beforeEach(async () => {
@@ -54,40 +55,51 @@ describe('UsersService', () => {
 
   afterEach(() => jest.clearAllMocks());
 
-  describe('create', () => {
-    it('should hash password and return user without password', async () => {
+  describe("create", () => {
+    it("should hash password and return user without password", async () => {
       prisma.user.findUnique.mockResolvedValue(null);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-pw');
-      prisma.user.create.mockResolvedValue({ ...mockUser, password: 'hashed-pw' });
+      (bcrypt.hash as jest.Mock).mockResolvedValue("hashed-pw");
+      prisma.user.create.mockResolvedValue({
+        ...mockUser,
+        password: "hashed-pw",
+      });
 
-      const result = await service.create({ name: 'João Silva', email: 'joao@example.com', password: 'senha123' });
+      const result = await service.create({
+        name: "João Silva",
+        email: "joao@example.com",
+        password: "senha123",
+      });
 
-      expect(bcrypt.hash).toHaveBeenCalledWith('senha123', 10);
-      expect(result).not.toHaveProperty('password');
-      expect(result.name).toBe('João Silva');
+      expect(bcrypt.hash).toHaveBeenCalledWith("senha123", 10);
+      expect(result).not.toHaveProperty("password");
+      expect(result.name).toBe("João Silva");
     });
 
-    it('should throw ConflictException when email already exists', async () => {
+    it("should throw ConflictException when email already exists", async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser);
 
       await expect(
-        service.create({ name: 'Test', email: 'joao@example.com', password: 'senha123' }),
+        service.create({
+          name: "Test",
+          email: "joao@example.com",
+          password: "senha123",
+        }),
       ).rejects.toThrow(ConflictException);
     });
   });
 
-  describe('findAll', () => {
-    it('should return users with password stripped', async () => {
+  describe("findAll", () => {
+    it("should return users with password stripped", async () => {
       prisma.user.findMany.mockResolvedValue([mockUser]);
 
       const result = await service.findAll();
 
       expect(result).toHaveLength(1);
-      expect(result[0]).not.toHaveProperty('password');
-      expect(result[0].name).toBe('João Silva');
+      expect(result[0]).not.toHaveProperty("password");
+      expect(result[0].name).toBe("João Silva");
     });
 
-    it('should return empty array when no users', async () => {
+    it("should return empty array when no users", async () => {
       prisma.user.findMany.mockResolvedValue([]);
 
       const result = await service.findAll();
@@ -95,106 +107,134 @@ describe('UsersService', () => {
     });
   });
 
-  describe('findOne', () => {
-    it('should return user without password', async () => {
+  describe("findOne", () => {
+    it("should return user without password", async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser);
 
-      const result = await service.findOne('user-uuid-1');
+      const result = await service.findOne("user-uuid-1");
 
-      expect(result).not.toHaveProperty('password');
-      expect(result.id).toBe('user-uuid-1');
+      expect(result).not.toHaveProperty("password");
+      expect(result.id).toBe("user-uuid-1");
     });
 
-    it('should throw NotFoundException when user does not exist', async () => {
+    it("should throw NotFoundException when user does not exist", async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.findOne('non-existent')).rejects.toThrow(NotFoundException);
+      await expect(service.findOne("non-existent")).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
-  describe('findByEmailForAuth', () => {
-    it('should return user WITH password for auth comparison', async () => {
+  describe("findByEmailForAuth", () => {
+    it("should return user WITH password for auth comparison", async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser);
 
-      const result = await service.findByEmailForAuth('joao@example.com');
+      const result = await service.findByEmailForAuth("joao@example.com");
 
-      expect(result).toHaveProperty('password');
-      expect(result!.password).toBe('$2b$10$hashedpassword');
+      expect(result).toHaveProperty("password");
+      expect(result!.password).toBe("$2b$10$hashedpassword");
     });
 
-    it('should return null for non-existent email', async () => {
+    it("should return null for non-existent email", async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      const result = await service.findByEmailForAuth('unknown@example.com');
+      const result = await service.findByEmailForAuth("unknown@example.com");
       expect(result).toBeNull();
     });
   });
 
-  describe('update', () => {
-    it('should rehash password if provided', async () => {
+  describe("update", () => {
+    it("should rehash password if provided", async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed-pw');
-      prisma.user.update.mockResolvedValue({ ...mockUser, password: 'new-hashed-pw', name: 'Novo Nome' });
+      (bcrypt.hash as jest.Mock).mockResolvedValue("new-hashed-pw");
+      prisma.user.update.mockResolvedValue({
+        ...mockUser,
+        password: "new-hashed-pw",
+        name: "Novo Nome",
+      });
 
-      const result = await service.update('user-uuid-1', { name: 'Novo Nome', password: 'newsecret' });
+      const result = await service.update("user-uuid-1", {
+        name: "Novo Nome",
+        password: "newsecret",
+      });
 
-      expect(bcrypt.hash).toHaveBeenCalledWith('newsecret', 10);
-      expect(result).not.toHaveProperty('password');
+      expect(bcrypt.hash).toHaveBeenCalledWith("newsecret", 10);
+      expect(result).not.toHaveProperty("password");
     });
 
-    it('should update profile fields including avatar, phone, and bio', async () => {
+    it("should update profile fields including avatar, phone, and bio", async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser);
-      prisma.user.update.mockResolvedValue({ ...mockUser, avatar: 'https://new-avatar.png', phone: '12345' });
+      prisma.user.update.mockResolvedValue({
+        ...mockUser,
+        avatar: "https://new-avatar.png",
+        phone: "12345",
+      });
 
-      const result = await service.update('user-uuid-1', { avatar: 'https://new-avatar.png', phone: '12345' });
+      const result = await service.update("user-uuid-1", {
+        avatar: "https://new-avatar.png",
+        phone: "12345",
+      });
 
       expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-uuid-1' },
-        data: { avatar: 'https://new-avatar.png', phone: '12345' },
+        where: { id: "user-uuid-1" },
+        data: { avatar: "https://new-avatar.png", phone: "12345" },
       });
-      expect(result.avatar).toBe('https://new-avatar.png');
+      expect(result.avatar).toBe("https://new-avatar.png");
     });
 
-    it('should throw NotFoundException when user does not exist', async () => {
+    it("should throw NotFoundException when user does not exist", async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.update('non-existent', { name: 'Test' })).rejects.toThrow(NotFoundException);
+      await expect(
+        service.update("non-existent", { name: "Test" }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
-  describe('generateAvatarUploadUrl', () => {
-    it('should generate signed upload URL for user avatar', async () => {
+  describe("generateAvatarUploadUrl", () => {
+    it("should generate signed upload URL for user avatar", async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser);
       gcs.generateSignedUploadUrl.mockResolvedValue({
-        uploadUrl: 'https://upload.url',
-        publicUrl: 'https://public.url',
+        uploadUrl: "https://upload.url",
+        publicUrl: "https://public.url",
       });
 
-      const result = await service.generateAvatarUploadUrl('user-uuid-1', 'image/png');
+      const result = await service.generateAvatarUploadUrl(
+        "user-uuid-1",
+        "image/png",
+      );
 
-      expect(gcs.generateSignedUploadUrl).toHaveBeenCalledWith('avatars/users/user-uuid-1.png', 'image/png');
+      expect(gcs.generateSignedUploadUrl).toHaveBeenCalledWith(
+        "avatars/users/user-uuid-1.png",
+        "image/png",
+      );
       expect(result).toEqual({
-        uploadUrl: 'https://upload.url',
-        publicUrl: 'https://public.url',
+        uploadUrl: "https://upload.url",
+        publicUrl: "https://public.url",
       });
     });
   });
 
-  describe('remove', () => {
-    it('should delete user', async () => {
+  describe("remove", () => {
+    it("should delete user", async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser);
       prisma.user.delete.mockResolvedValue(mockUser);
 
-      const result = await service.remove('user-uuid-1');
+      const result = await service.remove("user-uuid-1");
 
-      expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'user-uuid-1' } });
+      expect(prisma.user.delete).toHaveBeenCalledWith({
+        where: { id: "user-uuid-1" },
+      });
       expect(result).toBeDefined();
     });
 
-    it('should throw NotFoundException when user does not exist', async () => {
+    it("should throw NotFoundException when user does not exist", async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
-      await expect(service.remove('non-existent')).rejects.toThrow(NotFoundException);
+      await expect(service.remove("non-existent")).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

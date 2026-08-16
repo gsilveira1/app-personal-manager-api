@@ -1,4 +1,4 @@
-import { RRuleSet, rrulestr } from 'rrule';
+import { RRuleSet, rrulestr } from "rrule";
 
 /**
  * Expand an RRULE string into occurrence dates within a given range.
@@ -19,15 +19,12 @@ export function expandRRuleForRange(
   rangeEnd: Date,
   exdates: Date[] = [],
 ): Date[] {
-  const dtstartISO = dtstart
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .split('.')[0] + 'Z';
+  const dtstartISO =
+    dtstart.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
 
-  const ruleSet = rrulestr(
-    `DTSTART:${dtstartISO}\nRRULE:${rrule}`,
-    { forceset: true },
-  ) as RRuleSet;
+  const ruleSet = rrulestr(`DTSTART:${dtstartISO}\nRRULE:${rrule}`, {
+    forceset: true,
+  }) as RRuleSet;
 
   for (const exdate of exdates) {
     ruleSet.exdate(new Date(exdate));

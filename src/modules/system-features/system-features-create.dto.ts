@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, Matches } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, Matches } from "class-validator";
 
 export class CreateSystemFeatureDto {
   @IsString()

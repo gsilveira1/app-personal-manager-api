@@ -1,5 +1,13 @@
-import { IsDateString, IsNumber, IsOptional, IsString, IsUUID, ValidateNested, IsObject } from 'class-validator';
-import { Type } from 'class-transformer';
+import {
+  IsDateString,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  ValidateNested,
+  IsObject,
+} from "class-validator";
+import { Type } from "class-transformer";
 
 class PerimetersDto {
   @IsOptional() @IsNumber() waist?: number;
@@ -30,7 +38,7 @@ class SkinfoldsDto {
   @IsOptional() @IsNumber() calf?: number;
   @IsOptional() @IsNumber() chest?: number;
   @IsOptional() @IsNumber() midaxillary?: number;
-  
+
   // Added based on requirements
   @IsOptional() @IsNumber() biceps?: number;
   @IsOptional() @IsNumber() pectoral?: number;

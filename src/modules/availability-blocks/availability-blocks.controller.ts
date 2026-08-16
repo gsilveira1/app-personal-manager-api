@@ -9,18 +9,18 @@ import {
   Query,
   UseGuards,
   Request,
-} from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
+} from "@nestjs/common";
+import { AuthGuard } from "@nestjs/passport";
 
-import { AvailabilityBlocksService } from './availability-blocks.service';
+import { AvailabilityBlocksService } from "./availability-blocks.service";
 import {
   CreateAvailabilityBlockDto,
   UpdateAvailabilityBlockDto,
-} from './availability-blocks.dto';
-import { RequestWithUser } from '../../types/global';
+} from "./availability-blocks.dto";
+import { RequestWithUser } from "../../types/global";
 
-@UseGuards(AuthGuard('jwt'))
-@Controller('availability-blocks')
+@UseGuards(AuthGuard("jwt"))
+@Controller("availability-blocks")
 export class AvailabilityBlocksController {
   constructor(private readonly service: AvailabilityBlocksService) {}
 
@@ -35,8 +35,8 @@ export class AvailabilityBlocksController {
   @Get()
   findAll(
     @Request() req: RequestWithUser,
-    @Query('start') start: string,
-    @Query('end') end: string,
+    @Query("start") start: string,
+    @Query("end") end: string,
   ) {
     return this.service.findAllForRange(
       req.user.userId,
@@ -45,17 +45,17 @@ export class AvailabilityBlocksController {
     );
   }
 
-  @Patch(':id')
+  @Patch(":id")
   update(
     @Request() req: RequestWithUser,
-    @Param('id') id: string,
+    @Param("id") id: string,
     @Body() dto: UpdateAvailabilityBlockDto,
   ) {
     return this.service.update(req.user.userId, id, dto);
   }
 
-  @Delete(':id')
-  remove(@Request() req: RequestWithUser, @Param('id') id: string) {
+  @Delete(":id")
+  remove(@Request() req: RequestWithUser, @Param("id") id: string) {
     return this.service.remove(req.user.userId, id);
   }
 }
