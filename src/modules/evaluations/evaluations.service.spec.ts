@@ -4,6 +4,8 @@ import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { EvaluationsService } from './evaluations.service';
 import { PrismaService } from '../prisma/prisma.service';
 
+import { EvaluationsCalculatorService } from './evaluations-calculator.service';
+
 describe('EvaluationsService', () => {
   let service: EvaluationsService;
   let prisma: any;
@@ -44,6 +46,7 @@ describe('EvaluationsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         EvaluationsService,
+        EvaluationsCalculatorService,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();

@@ -4,12 +4,14 @@ import * as bcrypt from 'bcrypt';
 
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { GcsService } from '../gcs/gcs.service';
 
 jest.mock('bcrypt');
 
 describe('UsersService', () => {
   let service: UsersService;
   let prisma: any;
+  let gcs: any;
 
   const mockUser = {
     id: 'user-uuid-1',
@@ -17,6 +19,9 @@ describe('UsersService', () => {
     email: 'joao@example.com',
     password: '$2b$10$hashedpassword',
     role: 'user',
+    avatar: 'https://storage.googleapis.com/bucket/avatars/users/user-uuid-1.png',
+    phone: '5551999999999',
+    bio: 'Personal Trainer Especialista',
     createdAt: new Date('2025-01-01'),
     updatedAt: new Date('2025-01-01'),
   };
@@ -32,10 +37,15 @@ describe('UsersService', () => {
       },
     };
 
+    gcs = {
+      generateSignedUploadUrl: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         { provide: PrismaService, useValue: prisma },
+        { provide: GcsService, useValue: gcs },
       ],
     }).compile();
 
@@ -132,19 +142,41 @@ describe('UsersService', () => {
       expect(result).not.toHaveProperty('password');
     });
 
-    it('should not rehash when password is not provided', async () => {
+    it('should update profile fields including avatar, phone, and bio', async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser);
-      prisma.user.update.mockResolvedValue({ ...mockUser, name: 'Novo Nome' });
+      prisma.user.update.mockResolvedValue({ ...mockUser, avatar: 'https://new-avatar.png', phone: '12345' });
 
-      await service.update('user-uuid-1', { name: 'Novo Nome' });
+      const result = await service.update('user-uuid-1', { avatar: 'https://new-avatar.png', phone: '12345' });
 
-      expect(bcrypt.hash).not.toHaveBeenCalled();
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-uuid-1' },
+        data: { avatar: 'https://new-avatar.png', phone: '12345' },
+      });
+      expect(result.avatar).toBe('https://new-avatar.png');
     });
 
     it('should throw NotFoundException when user does not exist', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
       await expect(service.update('non-existent', { name: 'Test' })).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('generateAvatarUploadUrl', () => {
+    it('should generate signed upload URL for user avatar', async () => {
+      prisma.user.findUnique.mockResolvedValue(mockUser);
+      gcs.generateSignedUploadUrl.mockResolvedValue({
+        uploadUrl: 'https://upload.url',
+        publicUrl: 'https://public.url',
+      });
+
+      const result = await service.generateAvatarUploadUrl('user-uuid-1', 'image/png');
+
+      expect(gcs.generateSignedUploadUrl).toHaveBeenCalledWith('avatars/users/user-uuid-1.png', 'image/png');
+      expect(result).toEqual({
+        uploadUrl: 'https://upload.url',
+        publicUrl: 'https://public.url',
+      });
     });
   });
 

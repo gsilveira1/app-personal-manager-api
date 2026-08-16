@@ -13,6 +13,7 @@ import { LeadsModule } from './leads/leads.module';
 import { GcsModule } from './gcs/gcs.module';
 import { AvailabilityBlocksModule } from './availability-blocks/availability-blocks.module';
 import { SystemFeaturesModule } from './system-features/system-features.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -31,7 +32,8 @@ import { SystemFeaturesModule } from './system-features/system-features.module';
     LeadsModule,
     GcsModule,
     AvailabilityBlocksModule,
-    SystemFeaturesModule
+    SystemFeaturesModule,
+    AiModule,
   ],
   controllers: [],
   providers: [],

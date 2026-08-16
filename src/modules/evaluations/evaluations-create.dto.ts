@@ -61,6 +61,22 @@ export class CreateEvaluationDto {
   leanMass?: number;
 
   @IsOptional()
+  @IsNumber()
+  fatMass?: number;
+
+  @IsOptional()
+  @IsNumber()
+  bodyDensity?: number;
+
+  @IsOptional()
+  @IsString()
+  protocol?: string;
+
+  @IsOptional()
+  @IsString()
+  equation?: string;
+
+  @IsOptional()
   @IsString()
   notes?: string;
 

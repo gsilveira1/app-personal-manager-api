@@ -1,5 +1,6 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { GcsService } from '../gcs/gcs.service';
 import { User } from '@prisma/client';
 import { CreateUserDto } from './users-create.dto';
 import { UpdateUserDto } from './users-update.dto';
@@ -7,7 +8,10 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private gcs: GcsService,
+  ) { }
 
   async create(data: CreateUserDto) {
     const existingUser = await this.prisma.user.findUnique({
@@ -70,5 +74,14 @@ export class UsersService {
   async remove(id: string) {
     await this.findOne(id);
     return this.prisma.user.delete({ where: { id } });
+  }
+
+  async generateAvatarUploadUrl(userId: string, contentType: string) {
+    await this.findOne(userId); // Garante existência
+
+    const ext = contentType.split('/')[1] || 'png';
+    const objectPath = `avatars/users/${userId}.${ext}`;
+
+    return this.gcs.generateSignedUploadUrl(objectPath, contentType);
   }
 }

@@ -2,6 +2,7 @@ import { PrismaClient, ClientStatus } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 import * as bcrypt from 'bcrypt';
+import { addDays, subDays } from 'date-fns';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
@@ -220,6 +221,118 @@ async function main() {
       value: 'Você é um treinador experiente focado em biomecânica.',
     },
   });
+
+  // ──────────────────────────────────────────
+  // 5. Workout Plans (Templates)
+  // ──────────────────────────────────────────
+  const workoutA = await prisma.workoutPlan.create({
+    data: {
+      userId: trainer.id,
+      title: 'Hipertrofia - Treino A (Membros Inferiores)',
+      tags: ['Hipertrofia', 'Pernas'],
+      exercises: [
+        { name: 'Agachamento Livre', sets: 4, reps: '10-12', rest: '60s' },
+        { name: 'Leg Press', sets: 3, reps: '12', rest: '45s' }
+      ]
+    }
+  });
+
+  const workoutB = await prisma.workoutPlan.create({
+    data: {
+      userId: trainer.id,
+      title: 'Hipertrofia - Treino B (Membros Superiores)',
+      tags: ['Hipertrofia', 'Braços', 'Costas'],
+      exercises: [
+        { name: 'Supino Reto', sets: 3, reps: '10', rest: '60s' },
+        { name: 'Puxada Frontal', sets: 3, reps: '12', rest: '60s' }
+      ]
+    }
+  });
+  console.log('✅ Workouts: templates criados');
+
+  // ──────────────────────────────────────────
+  // 6. Schedules (Recurring Events)
+  // ──────────────────────────────────────────
+  const firstClients = await prisma.client.findMany({ take: 3, orderBy: { createdAt: 'asc' } });
+  
+  if (firstClients.length >= 3) {
+    await prisma.recurringEvent.create({
+      data: {
+        userId: trainer.id,
+        clientId: firstClients[0].id,
+        rrule: 'FREQ=WEEKLY;BYDAY=MO,WE',
+        dtstart: new Date(new Date().setHours(8, 0, 0, 0)),
+        durationMinutes: 30,
+        type: 'In-Person',
+        category: 'Workout',
+        linkedWorkoutId: workoutA.id,
+      }
+    });
+
+    await prisma.recurringEvent.create({
+      data: {
+        userId: trainer.id,
+        clientId: firstClients[1].id,
+        rrule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
+        dtstart: new Date(new Date().setHours(18, 0, 0, 0)),
+        durationMinutes: 60,
+        type: 'In-Person',
+        category: 'Workout',
+        linkedWorkoutId: workoutB.id,
+      }
+    });
+    console.log('✅ Schedules: recurring events criados');
+
+    // ──────────────────────────────────────────
+    // 7. Sessions (Histórico e Futuras)
+    // ──────────────────────────────────────────
+    await prisma.session.create({
+      data: {
+        userId: trainer.id,
+        clientId: firstClients[2].id,
+        date: subDays(new Date(), 2),
+        durationMinutes: 60,
+        type: 'In-Person',
+        category: 'Workout',
+        completed: true,
+        notes: 'Treino rendeu bem, aumentou a carga no agachamento.',
+        linkedWorkoutId: workoutA.id,
+      }
+    });
+
+    await prisma.session.create({
+      data: {
+        userId: trainer.id,
+        clientId: firstClients[2].id,
+        date: addDays(new Date(), 1),
+        durationMinutes: 60,
+        type: 'In-Person',
+        category: 'Workout',
+        completed: false,
+        linkedWorkoutId: workoutA.id,
+      }
+    });
+    console.log('✅ Sessions: histórico e futuras criadas');
+  }
+
+  // ──────────────────────────────────────────
+  // 8. Availability Blocks
+  // ──────────────────────────────────────────
+  const todayNoon = new Date();
+  todayNoon.setHours(12, 0, 0, 0);
+  const today1PM = new Date();
+  today1PM.setHours(13, 0, 0, 0);
+
+  await prisma.availabilityBlock.create({
+    data: {
+      userId: trainer.id,
+      title: 'Almoço',
+      rrule: 'FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR',
+      dtstart: todayNoon,
+      dtend: today1PM,
+    }
+  });
+  console.log('✅ AvailabilityBlocks: bloco de almoço criado');
 
   console.log('🚀 Seed finalizado!');
 }
