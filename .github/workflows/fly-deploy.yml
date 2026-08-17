@@ -55,7 +55,15 @@ jobs:
       - name: Setup Flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
+      # Build locally (GitHub runner has Docker) to avoid Fly.io's
+      # internal registry network (_api.internal:5000) which is
+      # unreliable from remote builders and causes "connection refused".
       - name: Deploy to Fly.io
-        run: flyctl deploy --remote-only
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: flyctl deploy --local-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
