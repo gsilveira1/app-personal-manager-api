@@ -92,6 +92,7 @@ model Client {
   dateOfBirth        DateTime?
   checkInFreq        String?
   medicalHistory     Json?
+  notificationEnabled Boolean      @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -168,6 +169,7 @@ model Session {
   type            String
   category        String
   completed       Boolean  @default(false)
+  cancelled       Boolean  @default(false)
   notes           String?
   recurrenceId    String?
 
