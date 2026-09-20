@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: personalops-postgres
+    container_name: personalops-postgres-dev
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
@@ -10,7 +10,7 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_dev_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-gym_management}"]
       interval: 5s
@@ -20,12 +20,12 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: personalops-redis
+    container_name: personalops-redis-dev
     restart: always
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
-      - redis_data:/data
+      - redis_dev_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -35,7 +35,7 @@ services:
 
   mailpit:
     image: axllent/mailpit:latest
-    container_name: personalops-mailpit
+    container_name: personalops-mailpit-dev
     restart: always
     ports:
       - "${MAILPIT_SMTP_PORT:-1025}:1025"
@@ -43,7 +43,7 @@ services:
 
   evolution-api:
     image: evoapicloud/evolution-api:v2.2.3
-    container_name: personalops-evolution-api
+    container_name: personalops-evolution-api-dev
     restart: always
     environment:
       - SERVER_URL=http://localhost:${EVOLUTION_PORT:-8080}
@@ -51,7 +51,7 @@ services:
       - DATABASE_ENABLED=true
       - DATABASE_PROVIDER=postgresql
       - DATABASE_CONNECTION_URI=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password123}@postgres:5432/${POSTGRES_DB:-gym_management}?schema=evolution
-      - DATABASE_CONNECTION_CLIENT_NAME=personalops_evolution
+      - DATABASE_CONNECTION_CLIENT_NAME=personalops_evolution_dev
       - DATABASE_SAVE_DATA_INSTANCE=true
       - DATABASE_SAVE_DATA_NEW_MESSAGE=true
       - DATABASE_SAVE_MESSAGE_UPDATE=true
@@ -63,7 +63,7 @@ services:
     ports:
       - "${EVOLUTION_PORT:-8080}:8080"
     volumes:
-      - evolution_instances:/evolution/instances
+      - evolution_instances_dev:/evolution/instances
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,10 +74,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: personalops-api
-    restart: always
+    container_name: personalops-api-dev
+    restart: unless-stopped
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run start:dev
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - PORT=9090
       - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password123}@postgres:5432/${POSTGRES_DB:-gym_management}?schema=public
       - REDIS_HOST=redis
@@ -106,14 +110,8 @@ services:
         condition: service_started
       mailpit:
         condition: service_started
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9090/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
 
 volumes:
-  postgres_data:
-  redis_data:
-  evolution_instances:
+  postgres_dev_data:
+  redis_dev_data:
+  evolution_instances_dev:

@@ -37,6 +37,7 @@ model Tenant {
   whatsappInstanceName String?        @unique
   whatsappStatus       WhatsappStatus @default(PENDING)
   setupCompleted       Boolean        @default(false)
+  features             Json?          @default("{\"maxStudents\": 50, \"canUploadVideos\": true, \"whatsappAlerts\": true}")
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
@@ -67,23 +68,30 @@ model User {
   workoutPlans       WorkoutPlan[]
   settings           UserSetting[]
   availabilityBlocks AvailabilityBlock[]
+  manualPayments     ManualPayment[]
+  anamneses          Anamnesis[]
+  workoutSheets      WorkoutSheet[]
+  workoutTemplates   WorkoutTemplate[]
 
   @@index([tenantId])
 }
 
 model Client {
-  id             String       @id @default(uuid())
-  name           String
-  email          String       @unique
-  phone          String
-  status         ClientStatus @default(Active)
-  type           String
-  goal           String?
-  avatar         String?
-  notes          String?
-  dateOfBirth    DateTime?
-  checkInFreq    String?
-  medicalHistory Json?
+  id                 String       @id @default(uuid())
+  name               String
+  email              String       @unique
+  phone              String
+  status             ClientStatus @default(Active)
+  modality           String?      @default("ONLINE") // ONLINE, PRESENCIAL, HYBRID
+  subscriptionStatus String?      @default("ACTIVE") // ACTIVE, OVERDUE, PAUSED
+  currentPeriodEnd   DateTime?
+  type               String
+  goal               String?
+  avatar             String?
+  notes              String?
+  dateOfBirth        DateTime?
+  checkInFreq        String?
+  medicalHistory     Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -101,6 +109,10 @@ model Client {
   recurringEvents RecurringEvent[]
   workouts        WorkoutPlan[]
   evaluations     Evaluation[]
+  manualPayments  ManualPayment[]
+  anamneses       Anamnesis[]
+  workoutSheets   WorkoutSheet[]
+  studentSessions StudentSession[]
 
   @@index([userId])
   @@index([status])
@@ -313,4 +325,170 @@ model AvailabilityBlock {
 
   @@index([userId])
   @@index([userId, dtstart])
+}
+
+model ManualPayment {
+  id          String   @id @default(uuid())
+  clientId    String
+  userId      String
+  paymentType String   // MANUAL_PIX, MANUAL_CASH, MANUAL_CARD
+  validUntil  DateTime
+  notes       String?
+  amount      Float?
+  createdAt   DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([clientId])
+  @@index([userId])
+}
+
+model Anamnesis {
+  id                 String   @id @default(uuid())
+  clientId           String
+  userId             String
+  isCurrent          Boolean  @default(true)
+  token              String?  @unique
+  tokenUsed          Boolean  @default(false)
+  medicalHistory     String?
+  injuriesAndPain    String?
+  routineAndSchedule String?
+  fitnessGoals       String?
+  experienceLevel    String?
+  parqAnswers        Json?
+  frontPhotoUrl      String?
+  backPhotoUrl       String?
+  sidePhotoUrl       String?
+  weightKg           Float?
+  measurements       Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([clientId])
+  @@index([userId])
+}
+
+model Exercise {
+  id           String   @id @default(uuid())
+  name         String
+  bodyPart     String
+  targetMuscle String?
+  equipment    String
+  gifUrl       String?
+  videoUrl     String?
+  isCustom     Boolean  @default(false)
+  userId       String?
+  tenantId     String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([tenantId])
+  @@index([bodyPart])
+  @@index([equipment])
+}
+
+model WorkoutSheet {
+  id        String    @id @default(uuid())
+  name      String
+  expiresAt DateTime?
+  active    Boolean   @default(true)
+  clientId  String
+  userId    String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  client   Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user     User               @relation(fields: [userId], references: [id])
+  workouts WorkoutSheetItem[]
+
+  @@index([clientId])
+  @@index([userId])
+}
+
+model WorkoutSheetItem {
+  id         String         @id @default(uuid())
+  sheetId    String
+  letter     String
+  name       String
+  orderIndex Int            @default(0)
+  blocks     WorkoutBlock[]
+
+  sheet WorkoutSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+
+  @@index([sheetId])
+}
+
+model WorkoutBlock {
+  id              String            @id @default(uuid())
+  workoutId       String
+  type            String            @default("REGULAR") // REGULAR, BISET, TRISET
+  orderIndex      Int               @default(0)
+  restTimeSeconds Int               @default(60)
+  exercises       WorkoutExercise[]
+
+  workout WorkoutSheetItem @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  @@index([workoutId])
+}
+
+model WorkoutExercise {
+  id              String  @id @default(uuid())
+  blockId         String
+  exerciseId      String?
+  exerciseName    String
+  gifUrl          String?
+  sets            Int     @default(3)
+  reps            String  @default("10-12")
+  suggestedLoadKg Float?
+  executionNotes  String?
+  orderIndex      Int     @default(0)
+
+  block WorkoutBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  @@index([blockId])
+}
+
+model WorkoutTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  structure   Json
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model StudentSession {
+  id              String   @id @default(uuid())
+  clientId        String
+  workoutId       String?
+  workoutName     String?
+  durationSeconds Int
+  completedAt     DateTime @default(now())
+  loads           Json?
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([completedAt])
+}
+
+model NotificationLog {
+  id             String   @id @default(uuid())
+  tenantId       String?
+  recipientPhone String
+  templateType   String
+  status         String   // SENT, QUEUED, FAILED
+  channel        String   @default("WHATSAPP") // WHATSAPP, EMAIL
+  error          String?
+  createdAt      DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([createdAt])
 }

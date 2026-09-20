@@ -16,6 +16,12 @@ import { SystemFeaturesModule } from "./system-features/system-features.module";
 import { AiModule } from "./ai/ai.module";
 import { StorageModule } from "./storage/storage.module";
 import { TenantsModule } from "./tenants/tenants.module";
+import { AnamnesisModule } from "./anamnesis/anamnesis.module";
+import { ExercisesModule } from "./exercises/exercises.module";
+import { WorkoutSheetsModule } from "./workout-sheets/workout-sheets.module";
+import { StudentPortalModule } from "./student-portal/student-portal.module";
+import { MessagingModule } from "./messaging/messaging.module";
+import { AdminModule } from "./admin/admin.module";
 
 @Module({
   imports: [
@@ -38,6 +44,12 @@ import { TenantsModule } from "./tenants/tenants.module";
     AiModule,
     StorageModule,
     TenantsModule,
+    AnamnesisModule,
+    ExercisesModule,
+    WorkoutSheetsModule,
+    StudentPortalModule,
+    MessagingModule,
+    AdminModule,
   ],
   controllers: [],
   providers: [],

@@ -11,8 +11,8 @@
 
 import { Test, TestingModule } from "@nestjs/testing";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
-import * as request from "supertest";
-import { AppModule } from "../src/app.module";
+import request from "supertest";
+import { AppModule } from "../src/modules/app.module";
 import { PrismaService } from "../src/modules/prisma/prisma.service";
 
 describe("Settings Language API (e2e)", () => {
@@ -177,7 +177,7 @@ describe("Settings Language API (e2e)", () => {
         .get("/api/settings/language")
         .set(authHeader())
         .expect(200)
-        .expect((r) => expect(r.body).toEqual({ language: "es" }));
+        .expect((r: request.Response) => expect(r.body).toEqual({ language: "es" }));
 
       await request(app.getHttpServer())
         .patch("/api/settings/language")

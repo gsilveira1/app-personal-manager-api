@@ -39,6 +39,9 @@ describe("ClientsService", () => {
         update: jest.fn(),
         delete: jest.fn(),
       },
+      notificationLog: {
+        create: jest.fn().mockResolvedValue({ id: "notif-1" }),
+      },
     };
 
     gcs = {

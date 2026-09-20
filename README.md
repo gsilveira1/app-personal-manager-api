@@ -2,7 +2,7 @@
 
 > REST API for a personal trainer management platform — handles clients, calendar sessions
 > (one-off & RFC 5545 recurring), workout plans, body evaluations, pricing plans,
-> lead capture, availability blocking, and per-user settings.
+> lead capture, availability blocking, WhatsApp messaging (Evolution API v2), and per-user settings.
 
 ---
 
@@ -12,13 +12,17 @@
 |----------------|----------------------------------------------------|
 | Runtime        | Node.js 22 LTS                                     |
 | Framework      | NestJS 10 + TypeScript 5                           |
-| ORM / Database | Prisma 7 + PostgreSQL 15                           |
+| ORM / Database | Prisma 7 + PostgreSQL 16                           |
+| Cache & Queue  | Redis 7                                            |
+| WhatsApp API   | Evolution API v2 (migrated from WAHA)              |
+| Email Testing  | Mailpit (SMTP & Web UI)                            |
 | Auth           | JWT Bearer token via Passport.js (`passport-jwt`)  |
 | File Storage   | Google Cloud Storage (signed URLs for avatars)     |
+| AI Engine      | Google Gemini 2.5 Flash / Flash Lite               |
 | Scheduling     | RFC 5545 RRULE engine (`rrule` library)            |
-| Infra (dev)    | Docker Compose (Postgres + Adminer)                |
+| Infra (dev)    | Docker Compose (Postgres + Redis + Evolution API + Mailpit + API) |
 | Infra (prod)   | Fly.io + Fly Postgres (private 6PN network)        |
-| Testing        | Jest 29 — 25 suites / 269 tests                   |
+| Testing        | Jest 29 — 30 suites / 297 tests                   |
 
 ---
 
@@ -39,11 +43,15 @@ graph TD
         Leads["LeadsModule\n/api/leads"]
         Settings["SettingsModule\n/api/settings"]
         Availability["AvailabilityBlocksModule\n/api/availability-blocks"]
+        AiMod["AiModule\n(Gemini 2.5)"]
         GCS["GcsModule"]
         Prisma["PrismaModule\n(shared singleton)"]
     end
 
-    DB[("PostgreSQL 15")]
+    DB[("PostgreSQL 16")]
+    RedisCache[("Redis 7\n(Cache & Queues)")]
+    Evolution["💬 Evolution API v2\n(WhatsApp - port 8080)"]
+    MailpitSvc["✉️ Mailpit\n(SMTP 1025 / UI 8025)"]
     Storage["☁️ Google Cloud Storage"]
 
     Client -->|"Bearer JWT"| Auth
@@ -72,6 +80,11 @@ graph TD
     Availability --> Prisma
 
     Prisma --> DB
+    Evolution --> DB
+    Evolution --> RedisCache
+    NestJS --> Evolution
+    NestJS --> MailpitSvc
+    NestJS --> RedisCache
 ```
 
 ---
@@ -84,6 +97,7 @@ app-personal-manager-api/
 │   ├── main.ts                        # Bootstrap, global prefix, /health endpoint
 │   ├── modules/
 │   │   ├── app.module.ts
+│   │   ├── ai/                        # Gemini AI workout generator & chat routines
 │   │   ├── auth/                      # JWT login, logout, signup, /me
 │   │   ├── availability-blocks/       # Trainer unavailability (one-off or recurring)
 │   │   ├── clients/                   # Client CRUD, lead conversion, avatar upload
@@ -94,6 +108,7 @@ app-personal-manager-api/
 │   │   ├── prisma/                    # Shared PrismaService singleton
 │   │   ├── sessions/                  # Calendar sessions (one-off + RFC 5545 RRULE)
 │   │   ├── settings/                  # Per-user settings (AI instructions, language, work hours)
+│   │   ├── system-features/           # Feature flags & access checks
 │   │   ├── users/                     # User CRUD
 │   │   └── workouts/                  # Workout plan templates & assignments
 │   ├── types/                         # Shared TypeScript types (RequestWithUser, etc.)
@@ -104,8 +119,9 @@ app-personal-manager-api/
 │   ├── seed.ts                        # Sample data seeder
 │   └── reset.ts                       # DB reset script
 ├── test/                              # E2E tests
-├── dockerfile                         # Multi-stage production image (Node 22 LTS)
-├── docker-compose.yml                 # Local dev: Postgres + Adminer
+├── Dockerfile                         # Multi-stage production image (Node 22 LTS, port 9090)
+├── docker-compose.yml                 # Full stack Compose (Postgres, Redis, Evolution API, Mailpit, API)
+├── docker-compose.dev.yml             # Dev Compose with hot-reload volume mounts
 ├── fly.toml                           # Fly.io production configuration
 ├── .env.example                       # Environment variable template
 └── .dockerignore
@@ -135,13 +151,26 @@ cp .env.example .env
 # Open .env and fill in your values (see Environment Variables section below)
 ```
 
-### 3 — Start infrastructure
+### 3 — Start infrastructure with Docker Compose
 
 ```bash
+# Start all services (PostgreSQL, Redis, Evolution API, Mailpit, API):
 docker compose up -d
-# PostgreSQL is accessible only via Docker network (not exposed to host)
-# Adminer (dev SQL UI) → http://127.0.0.1:8080
+
+# Or for local development with hot-reload:
+docker compose -f docker-compose.dev.yml up -d
 ```
+
+#### Services Map
+
+| Service | Port (Host) | Description |
+|---------|-------------|-------------|
+| **Personal Manager API** | `9090` | Main NestJS API (`http://localhost:9090/health`) |
+| **PostgreSQL 16** | `5432` | Main database (`schema=public` and `schema=evolution`) |
+| **Redis 7** | `6379` | Cache, sessions, and Evolution API queue |
+| **Evolution API v2** | `8080` | WhatsApp integration (`http://localhost:8080/docs`) |
+| **Mailpit UI** | `8025` | Mock email web interface (`http://localhost:8025`) |
+| **Mailpit SMTP** | `1025` | Local SMTP server |
 
 ### 4 — Run database migrations & seed
 
@@ -152,7 +181,7 @@ npm run db:seed             # Populate with sample data
 npm run db:refresh          # db:reset + db:seed
 ```
 
-### 5 — Start the dev server
+### 5 — Start the dev server (if running outside Docker)
 
 ```bash
 npm run start:dev           # Hot-reload on http://localhost:9090
@@ -164,16 +193,33 @@ npm run start:dev           # Hot-reload on http://localhost:9090
 
 Copy `.env.example` to `.env` and fill in all values. **Never commit `.env`.**
 
-| Variable          | Required | Description                                                     |
-|-------------------|----------|-----------------------------------------------------------------|
-| `DATABASE_URL`    | ✅        | PostgreSQL connection string (`postgresql://user:pass@host/db`) |
-| `JWT_SECRET`      | ✅        | Secret used to sign JWT tokens. Use a long random string in prod |
-| `TRAINER_USER_ID` | ✅        | UUID of the trainer user — scopes the public `/sessions/available` endpoint. Run `SELECT id FROM "User" LIMIT 1;` after seeding |
-| `GCP_PROJECT_ID`  | ⚠️ optional | Google Cloud project ID (required for avatar uploads)         |
-| `GCP_CLIENT_EMAIL`| ⚠️ optional | GCP service account email                                     |
-| `GCP_PRIVATE_KEY` | ⚠️ optional | GCP service account private key                               |
-| `GCS_BUCKET_NAME` | ⚠️ optional | GCS bucket name for avatar storage                            |
-| `PORT`            | ⚙️ optional | HTTP port (default: `9090`). Set automatically by fly.io      |
+| Variable | Required | Default / Example | Description |
+|---|---|---|---|
+| `PORT` | ⚙️ optional | `9090` | HTTP port for the API server |
+| `NODE_ENV` | ⚙️ optional | `development` | Application environment |
+| `DATABASE_URL` | ✅ | `postgresql://admin:password123@localhost:5432/gym_management?schema=public` | PostgreSQL connection string |
+| `POSTGRES_USER` | ⚙️ optional | `admin` | PostgreSQL username |
+| `POSTGRES_PASSWORD` | ⚙️ optional | `password123` | PostgreSQL password |
+| `POSTGRES_DB` | ⚙️ optional | `gym_management` | PostgreSQL database name |
+| `POSTGRES_PORT` | ⚙️ optional | `5432` | PostgreSQL host port |
+| `REDIS_HOST` | ⚙️ optional | `localhost` / `redis` | Redis host |
+| `REDIS_PORT` | ⚙️ optional | `6379` | Redis port |
+| `REDIS_URL` | ⚙️ optional | `redis://localhost:6379` | Redis connection URL |
+| `EVOLUTION_API_URL` | ✅ | `http://localhost:8080` | URL to Evolution API instance (replaces WAHA) |
+| `EVOLUTION_API_KEY` | ✅ | `personalops_secret_token_123` | Authentication key for Evolution API |
+| `EVOLUTION_PORT` | ⚙️ optional | `8080` | Host port for Evolution API |
+| `AUTHENTICATION_API_KEY` | ⚙️ optional | `personalops_secret_token_123` | Master API Key configured inside Evolution container |
+| `MAILPIT_SMTP_PORT` | ⚙️ optional | `1025` | Mailpit SMTP port |
+| `MAILPIT_UI_PORT` | ⚙️ optional | `8025` | Mailpit Web UI port |
+| `EMAIL_SMTP_HOST` | ⚙️ optional | `localhost` / `mailpit` | SMTP host for emails |
+| `EMAIL_SMTP_PORT` | ⚙️ optional | `1025` | SMTP port for emails |
+| `JWT_SECRET` | ✅ | `seu_segredo_aqui` | Secret used to sign JWT tokens |
+| `TRAINER_USER_ID` | ✅ | `uuid` | UUID of trainer user — scopes public endpoints |
+| `GEMINI_API_KEY` | ⚠️ optional | `AQ...` | Google Gemini AI API key |
+| `GCP_PROJECT_ID` | ⚠️ optional | `...` | Google Cloud project ID (for avatar uploads) |
+| `GCP_CLIENT_EMAIL`| ⚠️ optional | `...` | GCP service account email |
+| `GCP_PRIVATE_KEY` | ⚠️ optional | `...` | GCP service account private key |
+| `GCS_BUCKET_NAME` | ⚠️ optional | `gym_management` | GCS bucket name for avatar storage |
 
 > [!WARNING]
 > `JWT_SECRET` defaults to a hardcoded dev placeholder when unset. **Always set a strong secret in production.**

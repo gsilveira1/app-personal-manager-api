@@ -55,12 +55,20 @@ export class CreateClientDto {
   @IsString()
   phone!: string;
 
+  @IsString()
+  @IsOptional()
+  whatsapp?: string;
+
   @IsEnum(ClientStatus)
   @IsOptional()
   status?: ClientStatus; // Default é Active no banco, mas pode ser enviado
 
   @IsString()
   type!: string; // 'In-Person' | 'Online'
+
+  @IsString()
+  @IsOptional()
+  modality?: string; // 'ONLINE' | 'PRESENCIAL' | 'HYBRID'
 
   @IsString()
   @IsOptional()
