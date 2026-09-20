@@ -27,12 +27,29 @@ export class UsersService {
     }
 
     const hashedPassword = await bcrypt.hash(data.password, 10);
+    const userRole = data.role || "trainer";
+    const slug = `trainer-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+
+    // Criação automática do tenant atrelado ao novo treinador
+    const tenant = await this.prisma.tenant.create({
+      data: {
+        name: `${data.name} Studio`,
+        slug,
+        primaryColor: "#10B981",
+        setupCompleted: false,
+      },
+    });
 
     // Removemos a senha do retorno para segurança
     const { password, ...result } = await this.prisma.user.create({
       data: {
         ...data,
+        role: userRole,
         password: hashedPassword,
+        tenantId: tenant.id,
+      },
+      include: {
+        tenant: true,
       },
     });
 
@@ -40,13 +57,18 @@ export class UsersService {
   }
 
   async findAll() {
-    const users = await this.prisma.user.findMany();
+    const users = await this.prisma.user.findMany({
+      include: { tenant: true },
+    });
     // Remover senhas da lista
-    return users.map(({ password, ...user }: User) => user);
+    return users.map(({ password, ...user }: any) => user);
   }
 
   async findOne(id: string) {
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: { tenant: true },
+    });
     if (!user) throw new NotFoundException(`Usuário #${id} não encontrado`);
 
     const { password, ...result } = user;
@@ -55,7 +77,10 @@ export class UsersService {
 
   // Método específico para o AuthService (precisa da senha para comparar)
   async findByEmailForAuth(email: string) {
-    return this.prisma.user.findUnique({ where: { email } });
+    return this.prisma.user.findUnique({
+      where: { email },
+      include: { tenant: true },
+    });
   }
 
   async update(id: string, data: UpdateUserDto) {

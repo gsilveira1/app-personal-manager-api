@@ -14,6 +14,8 @@ import { GcsModule } from "./gcs/gcs.module";
 import { AvailabilityBlocksModule } from "./availability-blocks/availability-blocks.module";
 import { SystemFeaturesModule } from "./system-features/system-features.module";
 import { AiModule } from "./ai/ai.module";
+import { StorageModule } from "./storage/storage.module";
+import { TenantsModule } from "./tenants/tenants.module";
 
 @Module({
   imports: [
@@ -34,6 +36,8 @@ import { AiModule } from "./ai/ai.module";
     AvailabilityBlocksModule,
     SystemFeaturesModule,
     AiModule,
+    StorageModule,
+    TenantsModule,
   ],
   controllers: [],
   providers: [],

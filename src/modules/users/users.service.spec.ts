@@ -36,6 +36,14 @@ describe("UsersService", () => {
         update: jest.fn(),
         delete: jest.fn(),
       },
+      tenant: {
+        create: jest.fn().mockResolvedValue({
+          id: 'tenant-1',
+          name: 'João Silva Studio',
+          slug: 'trainer-1',
+          setupCompleted: false,
+        }),
+      },
     };
 
     gcs = {

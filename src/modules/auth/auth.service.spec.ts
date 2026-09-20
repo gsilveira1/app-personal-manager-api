@@ -126,6 +126,8 @@ describe("AuthService", () => {
           name: "João Silva",
           email: "joao@example.com",
           role: "user",
+          avatar: null,
+          tenant: null,
         },
       });
     });

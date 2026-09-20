@@ -23,15 +23,33 @@ async function main() {
   console.log('🌱 Iniciando Seed...');
 
   // ──────────────────────────────────────────
-  // 1. Trainer (admin)
+  // 1. Tenant & Trainer (admin)
   // ──────────────────────────────────────────
+  const defaultTenant = await prisma.tenant.upsert({
+    where: { slug: 'vivi-personal' },
+    update: {},
+    create: {
+      name: 'Vivi Personal Studio',
+      slug: 'vivi-personal',
+      primaryColor: '#10B981',
+      setupCompleted: true,
+      whatsappStatus: 'CONNECTED',
+    },
+  });
+
   const passwordHash = await bcrypt.hash('admin123', 10);
   const trainer = await prisma.user.upsert({
     where: { email: 'admin@gym.com' },
-    update: {},
-    create: { name: 'Vivi Personal', email: 'admin@gym.com', password: passwordHash, role: 'admin' },
+    update: { tenantId: defaultTenant.id },
+    create: {
+      name: 'Vivi Personal',
+      email: 'admin@gym.com',
+      password: passwordHash,
+      role: 'admin',
+      tenantId: defaultTenant.id,
+    },
   });
-  console.log(`✅ Trainer: ${trainer.id}`);
+  console.log(`✅ Trainer: ${trainer.id} (Tenant: ${defaultTenant.id})`);
 
   // ──────────────────────────────────────────
   // 2. Planos (baseados na realidade dos clientes)

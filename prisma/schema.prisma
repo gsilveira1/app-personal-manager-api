@@ -13,7 +13,35 @@ enum ClientStatus {
   Lead
 }
 
+enum TenantStatus {
+  ACTIVE
+  BLOCKED
+  OVERDUE
+}
+
+enum WhatsappStatus {
+  CONNECTED
+  DISCONNECTED
+  PENDING
+}
+
 // --- Models ---
+
+model Tenant {
+  id                   String         @id @default(uuid())
+  name                 String
+  slug                 String         @unique
+  status               TenantStatus   @default(ACTIVE)
+  primaryColor         String?        @default("#10B981")
+  logoUrl              String?
+  whatsappInstanceName String?        @unique
+  whatsappStatus       WhatsappStatus @default(PENDING)
+  setupCompleted       Boolean        @default(false)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  users User[]
+}
 
 model User {
   id        String   @id @default(uuid())
@@ -27,6 +55,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Multi-tenant
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
   // Relacionamentos: O usuário é dono de tudo isso
   clients            Client[]
   sessions           Session[]
@@ -35,6 +67,8 @@ model User {
   workoutPlans       WorkoutPlan[]
   settings           UserSetting[]
   availabilityBlocks AvailabilityBlock[]
+
+  @@index([tenantId])
 }
 
 model Client {
