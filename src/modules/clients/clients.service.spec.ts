@@ -42,6 +42,9 @@ describe("ClientsService", () => {
       notificationLog: {
         create: jest.fn().mockResolvedValue({ id: "notif-1" }),
       },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ id: userId, tenantId: "tenant-uuid-1" }),
+      },
     };
 
     gcs = {

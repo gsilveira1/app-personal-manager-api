@@ -28,6 +28,11 @@ export class ClientsService {
       const modality = data.modality || (data.type === "In-Person" ? "PRESENCIAL" : "ONLINE");
       const type = data.type || (modality === "PRESENCIAL" ? "In-Person" : "Online");
 
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { tenantId: true },
+      });
+
       const client = await this.prisma.client.create({
         data: {
           ...data,
@@ -37,12 +42,14 @@ export class ClientsService {
           subscriptionStatus: "ACTIVE",
           medicalHistory: medicalHistoryInput,
           userId, // Associa ao utilizador logado
+          tenantId: user?.tenantId || null, // Associa ao tenant do utilizador
         },
       });
 
       if (phone) {
         await this.prisma.notificationLog.create({
           data: {
+            tenantId: user?.tenantId || null,
             recipientPhone: phone,
             templateType: "WELCOME_ANAMNESIS",
             status: "QUEUED",

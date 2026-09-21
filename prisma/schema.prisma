@@ -41,7 +41,8 @@ model Tenant {
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
-  users User[]
+  users   User[]
+  clients Client[]
 }
 
 model User {
@@ -101,6 +102,10 @@ model Client {
   planId String?
   plan   Plan?   @relation(fields: [planId], references: [id])
 
+  // Multi-tenant: Vinculado ao Tenant e ao Usuário (Treinador)
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
   // Relacionamento com Usuário (Dono do registro)
   userId String
   user   User   @relation(fields: [userId], references: [id])
@@ -116,6 +121,7 @@ model Client {
   studentSessions StudentSession[]
 
   @@index([userId])
+  @@index([tenantId])
   @@index([status])
 }
 

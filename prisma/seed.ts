@@ -541,16 +541,60 @@ async function main() {
         avatar: c.avatar,
         dateOfBirth: c.dateOfBirth,
         type: c.modality === 'ONLINE' ? 'Online' : 'In-Person',
+        userId: trainerVivi.id,
+        tenantId: tenantVivi.id,
       },
       create: {
         ...c,
         type: c.modality === 'ONLINE' ? 'Online' : 'In-Person',
         userId: trainerVivi.id,
+        tenantId: tenantVivi.id,
       },
     });
     createdClients.push(client);
   }
-  console.log(`✅ 20 Clientes cadastrados com sucesso!`);
+  console.log(`✅ 20 Clientes cadastrados e vinculados ao Tenant Vivi (${tenantVivi.name})!`);
+
+  // Clientes específicos do Tenant Elite Fit (Carlos) para demonstrar isolamento multi-tenant
+  const carlosClientsData = [
+    {
+      name: 'Bruno Meirelles',
+      email: 'bruno.meirelles@elitefit.client',
+      phone: '+5551981112233',
+      modality: 'PRESENCIAL',
+      status: ClientStatus.Active,
+      type: 'In-Person',
+      goal: 'Hipertrofia e Powerlifting',
+      userId: trainerCarlos.id,
+      tenantId: tenantElite.id,
+    },
+    {
+      name: 'Camila Peixoto',
+      email: 'camila.peixoto@elitefit.client',
+      phone: '+5551982223344',
+      modality: 'ONLINE',
+      type: 'Online',
+      goal: 'Consultoria de Corrida e Resistência',
+      userId: trainerCarlos.id,
+      tenantId: tenantElite.id,
+    },
+  ];
+
+  for (const cc of carlosClientsData) {
+    await prisma.client.upsert({
+      where: { email: cc.email },
+      update: {
+        name: cc.name,
+        phone: cc.phone,
+        goal: cc.goal,
+        modality: cc.modality,
+        userId: cc.userId,
+        tenantId: cc.tenantId,
+      },
+      create: cc,
+    });
+  }
+  console.log(`✅ Clientes adicionais vinculados ao Tenant Elite Fit (${tenantElite.name})!`);
 
   // ──────────────────────────────────────────
   // 9. Anamneses e Reavaliações Físicas
