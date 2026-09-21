@@ -1,63 +1,72 @@
-/*
-  Warnings:
+-- 1. Migrate ClientStatus enum safely with data mapping
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ClientStatus') THEN
+        CREATE TYPE "ClientStatus_new" AS ENUM ('ACTIVE', 'PAUSED', 'OVERDUE', 'LEAD');
+        ALTER TABLE "Client" ALTER COLUMN "status" DROP DEFAULT;
+        ALTER TABLE "Client" ALTER COLUMN "status" TYPE "ClientStatus_new" USING (
+            CASE 
+                WHEN "status"::text = 'Active' THEN 'ACTIVE'::"ClientStatus_new"
+                WHEN "status"::text = 'Inactive' THEN 'PAUSED'::"ClientStatus_new"
+                WHEN "status"::text = 'Lead' THEN 'LEAD'::"ClientStatus_new"
+                WHEN "status"::text = 'ACTIVE' THEN 'ACTIVE'::"ClientStatus_new"
+                WHEN "status"::text = 'PAUSED' THEN 'PAUSED'::"ClientStatus_new"
+                WHEN "status"::text = 'OVERDUE' THEN 'OVERDUE'::"ClientStatus_new"
+                WHEN "status"::text = 'LEAD' THEN 'LEAD'::"ClientStatus_new"
+                ELSE 'ACTIVE'::"ClientStatus_new"
+            END
+        );
+        ALTER TYPE "ClientStatus" RENAME TO "ClientStatus_old";
+        ALTER TYPE "ClientStatus_new" RENAME TO "ClientStatus";
+        DROP TYPE "ClientStatus_old";
+        ALTER TABLE "Client" ALTER COLUMN "status" SET DEFAULT 'ACTIVE'::"ClientStatus";
+    END IF;
+END $$;
 
-  - The values [Active,Inactive,Lead] on the enum `ClientStatus` will be removed. If these variants are still used in the database, this will fail.
-  - You are about to drop the column `type` on the `Client` table. All the data in the column will be lost.
+-- 2. Create ClientModality enum and migrate modality column
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ClientModality') THEN
+        CREATE TYPE "ClientModality" AS ENUM ('PRESENCIAL', 'ONLINE', 'HYBRID');
+    END IF;
+END $$;
 
-*/
--- AlterEnum
-BEGIN;
-CREATE TYPE "ClientStatus_new" AS ENUM ('ACTIVE', 'PAUSED', 'OVERDUE', 'LEAD');
-ALTER TABLE "public"."Client" ALTER COLUMN "status" DROP DEFAULT;
-ALTER TABLE "Client" ALTER COLUMN "status" TYPE "ClientStatus_new" USING ("status"::text::"ClientStatus_new");
-ALTER TYPE "ClientStatus" RENAME TO "ClientStatus_old";
-ALTER TYPE "ClientStatus_new" RENAME TO "ClientStatus";
-DROP TYPE "public"."ClientStatus_old";
-ALTER TABLE "Client" ALTER COLUMN "status" SET DEFAULT 'ACTIVE';
-COMMIT;
+ALTER TABLE "Client" ALTER COLUMN "modality" DROP DEFAULT;
+ALTER TABLE "Client" ALTER COLUMN "modality" TYPE "ClientModality" USING (
+    CASE 
+        WHEN "modality"::text ILIKE 'PRESENCIAL%' THEN 'PRESENCIAL'::"ClientModality"
+        WHEN "modality"::text ILIKE 'HYBRID%' THEN 'HYBRID'::"ClientModality"
+        ELSE 'ONLINE'::"ClientModality"
+    END
+);
+ALTER TABLE "Client" ALTER COLUMN "modality" SET DEFAULT 'PRESENCIAL'::"ClientModality";
 
--- AlterTable
-ALTER TABLE "Anamnesis" ALTER COLUMN "updatedAt" DROP DEFAULT;
+-- 3. Drop legacy columns if present
+ALTER TABLE "Client" DROP COLUMN IF EXISTS "type";
+ALTER TABLE "Client" DROP COLUMN IF EXISTS "subscriptionStatus";
 
--- AlterTable
-ALTER TABLE "Client" DROP COLUMN "type",
-ALTER COLUMN "status" SET DEFAULT 'ACTIVE';
+-- 4. Create Indexes
+CREATE INDEX IF NOT EXISTS "Client_modality_idx" ON "Client"("modality");
 
--- AlterTable
-ALTER TABLE "Evaluation" ALTER COLUMN "updatedAt" DROP DEFAULT;
+-- 5. Create PasswordResetToken table for auth recovery flow
+CREATE TABLE IF NOT EXISTS "PasswordResetToken" (
+    "id" TEXT NOT NULL,
+    "token" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "used" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
--- AlterTable
-ALTER TABLE "Exercise" ALTER COLUMN "updatedAt" DROP DEFAULT;
+    CONSTRAINT "PasswordResetToken_pkey" PRIMARY KEY ("id")
+);
 
--- AlterTable
-ALTER TABLE "ManualPayment" ALTER COLUMN "updatedAt" DROP DEFAULT;
+CREATE UNIQUE INDEX IF NOT EXISTS "PasswordResetToken_token_key" ON "PasswordResetToken"("token");
+CREATE INDEX IF NOT EXISTS "PasswordResetToken_token_idx" ON "PasswordResetToken"("token");
+CREATE INDEX IF NOT EXISTS "PasswordResetToken_userId_idx" ON "PasswordResetToken"("userId");
 
--- AlterTable
-ALTER TABLE "NotificationLog" ALTER COLUMN "updatedAt" DROP DEFAULT;
-
--- AlterTable
-ALTER TABLE "Plan" ALTER COLUMN "updatedAt" DROP DEFAULT;
-
--- AlterTable
-ALTER TABLE "StudentSession" ALTER COLUMN "updatedAt" DROP DEFAULT;
-
--- AlterTable
-ALTER TABLE "Tenant" ALTER COLUMN "updatedAt" DROP DEFAULT;
-
--- AlterTable
-ALTER TABLE "WorkoutBlock" ALTER COLUMN "updatedAt" DROP DEFAULT;
-
--- AlterTable
-ALTER TABLE "WorkoutExercise" ALTER COLUMN "updatedAt" DROP DEFAULT;
-
--- AlterTable
-ALTER TABLE "WorkoutSheet" ALTER COLUMN "updatedAt" DROP DEFAULT;
-
--- AlterTable
-ALTER TABLE "WorkoutSheetItem" ALTER COLUMN "updatedAt" DROP DEFAULT;
-
--- AlterTable
-ALTER TABLE "WorkoutTemplate" ALTER COLUMN "updatedAt" DROP DEFAULT;
-
--- CreateIndex
-CREATE INDEX "Client_modality_idx" ON "Client"("modality");
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'PasswordResetToken_userId_fkey'
+    ) THEN
+        ALTER TABLE "PasswordResetToken" ADD CONSTRAINT "PasswordResetToken_userId_fkey" 
+            FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
