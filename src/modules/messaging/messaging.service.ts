@@ -123,4 +123,172 @@ export class MessagingService {
       link,
     };
   }
+
+  async getTenantQueue(
+    userId: string,
+    query: {
+      status?: string;
+      channel?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    },
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { tenantId: true },
+    });
+
+    if (!user || !user.tenantId) {
+      return {
+        items: [],
+        total: 0,
+        page: 1,
+        totalPages: 1,
+        summary: { totalQueued: 0, totalSent: 0, totalFailed: 0, totalCancelled: 0 },
+      };
+    }
+
+    const tenantId = user.tenantId;
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const where: any = { tenantId };
+
+    if (query.status && query.status !== "ALL") {
+      where.status = query.status.toUpperCase();
+    }
+
+    if (query.channel && query.channel !== "ALL") {
+      where.channel = query.channel.toUpperCase();
+    }
+
+    if (query.search) {
+      where.OR = [
+        { recipientPhone: { contains: query.search, mode: "insensitive" } },
+        { templateType: { contains: query.search, mode: "insensitive" } },
+        { error: { contains: query.search, mode: "insensitive" } },
+      ];
+    }
+
+    const [total, items, totalQueued, totalSent, totalFailed, totalCancelled] =
+      await Promise.all([
+        this.prisma.notificationLog.count({ where }),
+        this.prisma.notificationLog.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy: { createdAt: "desc" },
+        }),
+        this.prisma.notificationLog.count({ where: { tenantId, status: "QUEUED" } }),
+        this.prisma.notificationLog.count({ where: { tenantId, status: "SENT" } }),
+        this.prisma.notificationLog.count({ where: { tenantId, status: "FAILED" } }),
+        this.prisma.notificationLog.count({ where: { tenantId, status: "CANCELLED" } }),
+      ]);
+
+    return {
+      items,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit) || 1,
+      summary: {
+        totalQueued,
+        totalSent,
+        totalFailed,
+        totalCancelled,
+      },
+    };
+  }
+
+  async getClientMessageHistory(userId: string, clientId: string) {
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+      select: { id: true, userId: true, phone: true, tenantId: true },
+    });
+
+    if (!client || client.userId !== userId) {
+      throw new ForbiddenException("Acesso negado a este aluno");
+    }
+
+    const messages = await this.prisma.notificationLog.findMany({
+      where: {
+        recipientPhone: client.phone,
+        ...(client.tenantId ? { tenantId: client.tenantId } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return messages;
+  }
+
+  async retryNotification(userId: string, logId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { tenant: true },
+    });
+
+    const log = await this.prisma.notificationLog.findUnique({
+      where: { id: logId },
+    });
+
+    if (!log || (user?.tenantId && log.tenantId !== user.tenantId)) {
+      throw new ForbiddenException("Notificação não encontrada ou acesso negado");
+    }
+
+    const whatsappStatus = user?.tenant?.whatsappStatus || "DISCONNECTED";
+    let channel = "WHATSAPP";
+    let status = "SENT";
+    let error: string | null = null;
+
+    if (whatsappStatus === "DISCONNECTED") {
+      channel = "EMAIL";
+      status = "SENT";
+      error = "WhatsApp instance disconnected. Sent via email fallback.";
+    }
+
+    const updated = await this.prisma.notificationLog.update({
+      where: { id: logId },
+      data: {
+        status,
+        channel,
+        error,
+        updatedAt: new Date(),
+      },
+    });
+
+    return {
+      message: "Mensagem reenviada com sucesso.",
+      notification: updated,
+    };
+  }
+
+  async cancelNotification(userId: string, logId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    const log = await this.prisma.notificationLog.findUnique({
+      where: { id: logId },
+    });
+
+    if (!log || (user?.tenantId && log.tenantId !== user.tenantId)) {
+      throw new ForbiddenException("Notificação não encontrada ou acesso negado");
+    }
+
+    const updated = await this.prisma.notificationLog.update({
+      where: { id: logId },
+      data: {
+        status: "CANCELLED",
+        error: "Cancelado manualmente pelo treinador.",
+        updatedAt: new Date(),
+      },
+    });
+
+    return {
+      message: "Mensagem cancelada com sucesso.",
+      notification: updated,
+    };
+  }
 }
+

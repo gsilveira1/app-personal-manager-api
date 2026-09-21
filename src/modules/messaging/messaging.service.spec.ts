@@ -10,14 +10,22 @@ describe("MessagingService", () => {
   let _anamnesisService: AnamnesisService;
   let _studentPortalService: StudentPortalService;
 
-  const mockPrismaService = {
+  const mockPrismaService: any = {
     client: {
+      findUnique: jest.fn(),
+    },
+    user: {
       findUnique: jest.fn(),
     },
     notificationLog: {
       create: jest.fn(),
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn(),
+      update: jest.fn(),
     },
   };
+
 
   const mockAnamnesisService = {
     generateMagicLinkToken: jest.fn().mockResolvedValue({
@@ -101,4 +109,113 @@ describe("MessagingService", () => {
       );
     });
   });
+
+  describe("getTenantQueue", () => {
+    it("should return empty queue if user has no tenant", async () => {
+      mockPrismaService.user = { findUnique: jest.fn().mockResolvedValue({ tenantId: null }) };
+      const result = await service.getTenantQueue("user-no-tenant", {});
+      expect(result.items).toEqual([]);
+      expect(result.total).toBe(0);
+      expect(result.summary.totalQueued).toBe(0);
+    });
+
+    it("should return paginated logs and aggregate summary counts", async () => {
+      mockPrismaService.user = { findUnique: jest.fn().mockResolvedValue({ tenantId: "tenant-1" }) };
+      mockPrismaService.notificationLog.count = jest
+        .fn()
+        .mockResolvedValueOnce(10) // total matching
+        .mockResolvedValueOnce(3) // queued
+        .mockResolvedValueOnce(5) // sent
+        .mockResolvedValueOnce(2) // failed
+        .mockResolvedValueOnce(0); // cancelled
+      mockPrismaService.notificationLog.findMany = jest.fn().mockResolvedValue([
+        { id: "log-1", templateType: "WELCOME_ANAMNESIS", status: "QUEUED", recipientPhone: "11999999999" },
+      ]);
+
+      const result = await service.getTenantQueue("user-1", { status: "QUEUED", page: 1, limit: 10 });
+      expect(result.total).toBe(10);
+      expect(result.items.length).toBe(1);
+      expect(result.summary).toEqual({
+        totalQueued: 3,
+        totalSent: 5,
+        totalFailed: 2,
+        totalCancelled: 0,
+      });
+    });
+  });
+
+  describe("getClientMessageHistory", () => {
+    it("should throw ForbiddenException if client does not belong to user", async () => {
+      mockPrismaService.client.findUnique.mockResolvedValue({
+        id: "client-1",
+        userId: "other-user",
+        phone: "11999999999",
+      });
+
+      await expect(service.getClientMessageHistory("user-1", "client-1")).rejects.toThrow();
+    });
+
+    it("should return notification logs for matching client phone and tenant", async () => {
+      mockPrismaService.client.findUnique.mockResolvedValue({
+        id: "client-1",
+        userId: "user-1",
+        phone: "11999999999",
+        tenantId: "tenant-1",
+      });
+      mockPrismaService.notificationLog.findMany = jest.fn().mockResolvedValue([
+        { id: "log-1", recipientPhone: "11999999999", status: "SENT", templateType: "WORKOUT_LINK" },
+      ]);
+
+      const result = await service.getClientMessageHistory("user-1", "client-1");
+      expect(result).toHaveLength(1);
+      expect(result[0].status).toBe("SENT");
+    });
+  });
+
+  describe("retryNotification", () => {
+    it("should update log to SENT via WhatsApp when WhatsApp is CONNECTED", async () => {
+      mockPrismaService.user = {
+        findUnique: jest.fn().mockResolvedValue({
+          tenantId: "tenant-1",
+          tenant: { whatsappStatus: "CONNECTED" },
+        }),
+      };
+      mockPrismaService.notificationLog.findUnique = jest.fn().mockResolvedValue({
+        id: "log-failed",
+        tenantId: "tenant-1",
+        status: "FAILED",
+      });
+      mockPrismaService.notificationLog.update = jest.fn().mockResolvedValue({
+        id: "log-failed",
+        status: "SENT",
+        channel: "WHATSAPP",
+      });
+
+      const result = await service.retryNotification("user-1", "log-failed");
+      expect(result.message).toBe("Mensagem reenviada com sucesso.");
+      expect(result.notification.status).toBe("SENT");
+    });
+  });
+
+  describe("cancelNotification", () => {
+    it("should mark queued notification as CANCELLED", async () => {
+      mockPrismaService.user = {
+        findUnique: jest.fn().mockResolvedValue({ tenantId: "tenant-1" }),
+      };
+      mockPrismaService.notificationLog.findUnique = jest.fn().mockResolvedValue({
+        id: "log-queued",
+        tenantId: "tenant-1",
+        status: "QUEUED",
+      });
+      mockPrismaService.notificationLog.update = jest.fn().mockResolvedValue({
+        id: "log-queued",
+        status: "CANCELLED",
+      });
+
+      const result = await service.cancelNotification("user-1", "log-queued");
+      expect(result.message).toBe("Mensagem cancelada com sucesso.");
+      expect(result.notification.status).toBe("CANCELLED");
+    });
+  });
 });
+
