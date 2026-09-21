@@ -255,7 +255,7 @@ describe("SessionsService", () => {
         where: { userId },
         include: {
           client: { select: { name: true, avatar: true } },
-          workout: { select: { title: true } },
+          workout: { select: { id: true, name: true, letter: true } },
         },
         orderBy: { date: "asc" },
       });

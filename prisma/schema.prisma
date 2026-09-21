@@ -41,8 +41,10 @@ model Tenant {
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
-  users   User[]
-  clients Client[]
+  users            User[]
+  clients          Client[]
+  exercises        Exercise[]
+  notificationLogs NotificationLog[]
 }
 
 model User {
@@ -66,33 +68,33 @@ model User {
   sessions           Session[]
   recurringEvents    RecurringEvent[]
   plans              Plan[]
-  workoutPlans       WorkoutPlan[]
   settings           UserSetting[]
   availabilityBlocks AvailabilityBlock[]
   manualPayments     ManualPayment[]
   anamneses          Anamnesis[]
   workoutSheets      WorkoutSheet[]
   workoutTemplates   WorkoutTemplate[]
+  exercises          Exercise[]
 
   @@index([tenantId])
 }
 
 model Client {
-  id                 String       @id @default(uuid())
-  name               String
-  email              String       @unique
-  phone              String
-  status             ClientStatus @default(Active)
-  modality           String?      @default("ONLINE") // ONLINE, PRESENCIAL, HYBRID
-  subscriptionStatus String?      @default("ACTIVE") // ACTIVE, OVERDUE, PAUSED
-  currentPeriodEnd   DateTime?
-  type               String
-  goal               String?
-  avatar             String?
-  notes              String?
-  dateOfBirth        DateTime?
-  checkInFreq        String?
-  medicalHistory     Json?
+  id                  String       @id @default(uuid())
+  name                String
+  email               String       @unique
+  phone               String
+  status              ClientStatus @default(Active)
+  modality            String?      @default("ONLINE") // ONLINE, PRESENCIAL, HYBRID
+  subscriptionStatus  String?      @default("ACTIVE") // ACTIVE, OVERDUE, PAUSED
+  currentPeriodEnd    DateTime?
+  type                String
+  goal                String?
+  avatar              String?
+  notes               String?
+  dateOfBirth         DateTime?
+  checkInFreq         String?
+  medicalHistory      Json?
   notificationEnabled Boolean      @default(true)
 
   createdAt DateTime @default(now())
@@ -113,7 +115,6 @@ model Client {
   // Outros relacionamentos
   sessions        Session[]
   recurringEvents RecurringEvent[]
-  workouts        WorkoutPlan[]
   evaluations     Evaluation[]
   manualPayments  ManualPayment[]
   anamneses       Anamnesis[]
@@ -123,6 +124,7 @@ model Client {
   @@index([userId])
   @@index([tenantId])
   @@index([status])
+  @@index([planId])
 }
 
 model Plan {
@@ -134,6 +136,7 @@ model Plan {
   price           Float
   active          Boolean  @default(true)
   createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Planos pertencem a um Usuário (Treinador)
   userId String
@@ -141,6 +144,8 @@ model Plan {
 
   clients  Client[]
   features PlanFeature[]
+
+  @@index([userId])
 }
 
 model SystemFeature {
@@ -190,37 +195,13 @@ model Session {
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
-  // Relacionamento com Treino
+  // Relacionamento com Treino (Ficha / Divisão)
   linkedWorkoutId String?
-  workout         WorkoutPlan? @relation(fields: [linkedWorkoutId], references: [id], onDelete: SetNull)
+  workout         WorkoutSheetItem? @relation(fields: [linkedWorkoutId], references: [id], onDelete: SetNull)
 
   @@index([userId, date])
   @@index([clientId])
-}
-
-model WorkoutPlan {
-  id          String   @id @default(uuid())
-  title       String
-  description String?
-  status      String   @default("Active")
-  tags        String[]
-  exercises   Json[]
-
-  // Treinos pertencem a um Usuário (Treinador) - Obrigatório
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  // Treinos podem pertencer a um Cliente (Opcional - se for null, é um Template)
-  clientId String?
-  client   Client? @relation(fields: [clientId], references: [id])
-
-  sessions Session[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([clientId])
+  @@index([linkedWorkoutId])
 }
 
 model Evaluation {
@@ -243,6 +224,7 @@ model Evaluation {
   client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([clientId])
 }
@@ -318,15 +300,15 @@ model SessionException {
 
 model AvailabilityBlock {
   id       String   @id @default(uuid())
-  title    String                         // "Almoço", "Férias"
-  rrule    String?                        // null = one-off, else RFC 5545
+  title    String // "Almoço", "Férias"
+  rrule    String? // null = one-off, else RFC 5545
   timezone String   @default("America/Sao_Paulo")
   dtstart  DateTime
-  dtend    DateTime                       // dtstart+dtend define the block window
+  dtend    DateTime // dtstart+dtend define the block window
   notes    String?
 
-  userId   String
-  user     User     @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -339,11 +321,12 @@ model ManualPayment {
   id          String   @id @default(uuid())
   clientId    String
   userId      String
-  paymentType String   // MANUAL_PIX, MANUAL_CASH, MANUAL_CARD
+  paymentType String // MANUAL_PIX, MANUAL_CASH, MANUAL_CARD
   validUntil  DateTime
   notes       String?
   amount      Float?
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id])
@@ -392,6 +375,11 @@ model Exercise {
   userId       String?
   tenantId     String?
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user             User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  tenant           Tenant?           @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  workoutExercises WorkoutExercise[]
 
   @@index([userId])
   @@index([tenantId])
@@ -418,46 +406,55 @@ model WorkoutSheet {
 }
 
 model WorkoutSheetItem {
-  id         String         @id @default(uuid())
+  id         String   @id @default(uuid())
   sheetId    String
   letter     String
   name       String
-  orderIndex Int            @default(0)
-  blocks     WorkoutBlock[]
+  orderIndex Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  sheet WorkoutSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  blocks   WorkoutBlock[]
+  sheet    WorkoutSheet   @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  sessions Session[]
 
   @@index([sheetId])
 }
 
 model WorkoutBlock {
-  id              String            @id @default(uuid())
+  id              String   @id @default(uuid())
   workoutId       String
-  type            String            @default("REGULAR") // REGULAR, BISET, TRISET
-  orderIndex      Int               @default(0)
-  restTimeSeconds Int               @default(60)
-  exercises       WorkoutExercise[]
+  type            String   @default("REGULAR") // REGULAR, BISET, TRISET
+  orderIndex      Int      @default(0)
+  restTimeSeconds Int      @default(60)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  workout WorkoutSheetItem @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercises WorkoutExercise[]
+  workout   WorkoutSheetItem  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
 
   @@index([workoutId])
 }
 
 model WorkoutExercise {
-  id              String  @id @default(uuid())
+  id              String   @id @default(uuid())
   blockId         String
   exerciseId      String?
   exerciseName    String
   gifUrl          String?
-  sets            Int     @default(3)
-  reps            String  @default("10-12")
+  sets            Int      @default(3)
+  reps            String   @default("10-12")
   suggestedLoadKg Float?
   executionNotes  String?
-  orderIndex      Int     @default(0)
+  orderIndex      Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  block WorkoutBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  block    WorkoutBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  exercise Exercise?    @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
 
   @@index([blockId])
+  @@index([exerciseId])
 }
 
 model WorkoutTemplate {
@@ -466,8 +463,10 @@ model WorkoutTemplate {
   description String?
   structure   Json
   userId      String
-  user        User     @relation(fields: [userId], references: [id])
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
 }
@@ -480,11 +479,14 @@ model StudentSession {
   durationSeconds Int
   completedAt     DateTime @default(now())
   loads           Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId])
   @@index([completedAt])
+  @@index([workoutId])
 }
 
 model NotificationLog {
@@ -492,11 +494,15 @@ model NotificationLog {
   tenantId       String?
   recipientPhone String
   templateType   String
-  status         String   // SENT, QUEUED, FAILED
+  status         String // SENT, QUEUED, FAILED
   channel        String   @default("WHATSAPP") // WHATSAPP, EMAIL
   error          String?
   createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([createdAt])
+  @@index([status])
 }

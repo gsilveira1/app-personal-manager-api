@@ -3,7 +3,6 @@ import { ConfigModule } from "@nestjs/config";
 import { PrismaModule } from "./prisma/prisma.module";
 import { SessionsModule } from "./sessions/sessions.module";
 import { ClientsModule } from "./clients/clients.module";
-import { WorkoutsModule } from "./workouts/workouts.module";
 import { PlansModule } from "./plans/plans.module";
 import { SettingsModule } from "./settings/settings.module";
 import { AuthModule } from "./auth/auth.module";
@@ -34,7 +33,6 @@ import { AdminModule } from "./admin/admin.module";
     SessionsModule,
     EvaluationsModule,
     ClientsModule,
-    WorkoutsModule,
     PlansModule,
     SettingsModule,
     LeadsModule,

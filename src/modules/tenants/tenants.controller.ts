@@ -15,7 +15,7 @@ import { UpdateBrandingDto } from './dto/branding.dto';
 import { RequestWithUser } from '../../types/global';
 
 @UseGuards(AuthGuard('jwt'))
-@Controller('tenant')
+@Controller('tenants')
 export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
@@ -30,6 +30,12 @@ export class TenantsController {
     @Body() dto: UpdateBrandingDto,
   ) {
     return this.tenantsService.updateBranding(req.user.userId, dto);
+  }
+
+  @Post('setup/connect-whatsapp')
+  @HttpCode(HttpStatus.OK)
+  async connectWhatsappSetup(@Request() req: RequestWithUser) {
+    return this.tenantsService.connectWhatsapp(req.user.userId);
   }
 
   @Post('whatsapp/connect')

@@ -7,6 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateBrandingDto } from './dto/branding.dto';
 import { WhatsappStatus } from '@prisma/client';
+import * as QRCode from 'qrcode';
 
 export interface WhatsappConnectResponse {
   instanceName: string;
@@ -82,21 +83,60 @@ export class TenantsService {
     const status = WhatsappStatus.PENDING;
 
     if (evolutionApiUrl && evolutionApiKey) {
+      const baseUrl = evolutionApiUrl.replace(/\/$/, '');
       try {
-        // Live Evolution API integration
-        // 1. Create or fetch instance
-        // 2. Request QR Code
-        this.logger.log(`Connecting instance ${instanceName} to Evolution API at ${evolutionApiUrl}`);
+        this.logger.log(`Ensuring instance ${instanceName} exists at ${baseUrl}`);
+        // 1. Create instance (or ignore if already exists)
+        await fetch(`${baseUrl}/instance/create`, {
+          method: 'POST',
+          headers: {
+            apikey: evolutionApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            instanceName,
+            qrcode: true,
+            integration: 'WHATSAPP-BAILEYS',
+          }),
+        }).catch((err) => {
+          this.logger.warn(`Instance create call returned: ${err.message}`);
+        });
+
+        // 2. Fetch connection QR code
+        const connectRes = await fetch(`${baseUrl}/instance/connect/${instanceName}`, {
+          method: 'GET',
+          headers: {
+            apikey: evolutionApiKey,
+          },
+        });
+
+        if (connectRes.ok) {
+          const data = (await connectRes.json()) as any;
+          if (data?.base64) {
+            qrcodeBase64 = data.base64.startsWith('data:')
+              ? data.base64
+              : `data:image/png;base64,${data.base64}`;
+          } else if (data?.code) {
+            qrcodeBase64 = await QRCode.toDataURL(data.code, {
+              width: 320,
+              margin: 2,
+            });
+          }
+        }
       } catch (err: any) {
-        this.logger.error(`Evolution API error: ${err.message}`, err.stack);
+        this.logger.error(`Evolution API connection error: ${err.message}`, err.stack);
       }
     }
 
-    // Fallback QR code mock for local development and autonomous CI
+    // Ensure a visible, scannable QR code is returned (even in local dev/offline mode)
     if (!qrcodeBase64) {
-      // 1x1 transparent PNG or base64 placeholder for QR code image
-      qrcodeBase64 =
-        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      qrcodeBase64 = await QRCode.toDataURL(
+        `https://wa.me/?text=PersonalOps%20WhatsApp%20Auth%20${instanceName}`,
+        {
+          width: 320,
+          margin: 2,
+        },
+      );
     }
 
     await this.prisma.tenant.update({

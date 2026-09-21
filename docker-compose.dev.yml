@@ -60,6 +60,8 @@ services:
       - CACHE_REDIS_ENABLED=true
       - CACHE_REDIS_URI=redis://redis:6379/1
       - CACHE_REDIS_PREFIX_KEY=evolution
+      - CONFIG_SESSION_PHONE_VERSION=2.3000.1047994416-alpha
+      - WEB_VERSION=2.3000.1047994416-alpha
     ports:
       - "${EVOLUTION_PORT:-8080}:8080"
     volumes:
@@ -79,7 +81,7 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-    command: npm run start:dev
+    command: sh -c "npx prisma generate && npm run build && npm run start:dev"
     environment:
       - NODE_ENV=development
       - PORT=9090
