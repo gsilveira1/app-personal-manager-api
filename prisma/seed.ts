@@ -742,6 +742,7 @@ async function main() {
 
   // Criar WorkoutSheet para Ana Luísa e Juliana
   await prisma.workoutSheet.deleteMany({ where: { userId: trainerVivi.id } });
+  const exMap = new Map(createdExercises.map((e) => [e.name, e.id]));
   const sheetAna = await prisma.workoutSheet.create({
     data: {
       userId: trainerVivi.id,
@@ -764,6 +765,7 @@ async function main() {
                   exercises: {
                     create: [
                       {
+                        exerciseId: exMap.get('Agachamento Livre'),
                         exerciseName: 'Agachamento Livre',
                         sets: 4,
                         reps: '10-12',
@@ -781,6 +783,7 @@ async function main() {
                   exercises: {
                     create: [
                       {
+                        exerciseId: exMap.get('Leg Press 45º'),
                         exerciseName: 'Leg Press 45º',
                         sets: 3,
                         reps: '12-15',
@@ -788,6 +791,7 @@ async function main() {
                         orderIndex: 0,
                       },
                       {
+                        exerciseId: exMap.get('Cadeira Extensora'),
                         exerciseName: 'Cadeira Extensora',
                         sets: 3,
                         reps: '12-15 com pico de contração de 2s',
@@ -813,6 +817,7 @@ async function main() {
                   exercises: {
                     create: [
                       {
+                        exerciseId: exMap.get('Elevação Pélvica com Barra'),
                         exerciseName: 'Elevação Pélvica com Barra',
                         sets: 4,
                         reps: '10-12',
@@ -828,6 +833,9 @@ async function main() {
           },
         ],
       },
+    },
+    include: {
+      workouts: true,
     },
   });
   console.log(`✅ Workout Sheet criado para ${ana1.name} (${sheetAna.id})`);
@@ -875,6 +883,7 @@ async function main() {
       {
         userId: trainerVivi.id,
         clientId: ana1.id,
+        linkedWorkoutId: sheetAna.workouts[0]?.id,
         date: subDays(today, 2),
         durationMinutes: 30,
         type: 'In-Person',
