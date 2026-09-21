@@ -24,9 +24,15 @@ export class ClientsService {
         ? (data.medicalHistory as unknown as Prisma.InputJsonValue)
         : undefined;
 
+      const { whatsapp, ...restData } = data;
       const phone = data.whatsapp || data.phone || "";
-      const modality = data.modality || (data.type === "In-Person" ? "PRESENCIAL" : "ONLINE");
-      const type = data.type || (modality === "PRESENCIAL" ? "In-Person" : "Online");
+      const modality =
+        data.modality || (data.type === "In-Person" ? "PRESENCIAL" : "ONLINE");
+      const type =
+        data.type || (modality === "PRESENCIAL" ? "In-Person" : "Online");
+      const subscriptionStatus = data.subscriptionStatus || "ACTIVE";
+      const notificationEnabled =
+        data.notificationEnabled !== undefined ? data.notificationEnabled : true;
 
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -35,11 +41,12 @@ export class ClientsService {
 
       const client = await this.prisma.client.create({
         data: {
-          ...data,
+          ...restData,
           phone,
           modality,
           type,
-          subscriptionStatus: "ACTIVE",
+          subscriptionStatus,
+          notificationEnabled,
           medicalHistory: medicalHistoryInput,
           userId, // Associa ao utilizador logado
           tenantId: user?.tenantId || null, // Associa ao tenant do utilizador
@@ -47,15 +54,17 @@ export class ClientsService {
       });
 
       if (phone) {
-        await this.prisma.notificationLog.create({
-          data: {
-            tenantId: user?.tenantId || null,
-            recipientPhone: phone,
-            templateType: "WELCOME_ANAMNESIS",
-            status: "QUEUED",
-            channel: "WHATSAPP",
-          },
-        }).catch(() => null);
+        await this.prisma.notificationLog
+          .create({
+            data: {
+              tenantId: user?.tenantId || null,
+              recipientPhone: phone,
+              templateType: "WELCOME_ANAMNESIS",
+              status: "QUEUED",
+              channel: "WHATSAPP",
+            },
+          })
+          .catch(() => null);
       }
 
       return client;
@@ -77,7 +86,16 @@ export class ClientsService {
     });
   }
 
-  async findStudents(userId: string, query: { page?: number; limit?: number; search?: string; modality?: string; status?: string }) {
+  async findStudents(
+    userId: string,
+    query: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      modality?: string;
+      status?: string;
+    },
+  ) {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -132,8 +150,10 @@ export class ClientsService {
       email: c.email,
       whatsapp: c.phone,
       phone: c.phone,
-      modality: c.modality || (c.type === "In-Person" ? "PRESENCIAL" : "ONLINE"),
-      status: c.subscriptionStatus === "PAUSED" ? "PAUSED" : (c.status.toUpperCase()),
+      modality:
+        c.modality || (c.type === "In-Person" ? "PRESENCIAL" : "ONLINE"),
+      status:
+        c.subscriptionStatus === "PAUSED" ? "PAUSED" : c.status.toUpperCase(),
       subscription: {
         status: c.subscriptionStatus || "ACTIVE",
         currentPeriodEnd: c.currentPeriodEnd,
@@ -155,7 +175,6 @@ export class ClientsService {
       where: { id },
       include: {
         plan: true,
-        workouts: true,
         workoutSheets: {
           include: {
             workouts: {
@@ -193,16 +212,22 @@ export class ClientsService {
   async update(userId: string, id: string, data: UpdateClientDto) {
     await this.findOne(userId, id); // Garante existência e permissão
 
-    const medicalHistoryInput = data.medicalHistory
-      ? (data.medicalHistory as unknown as Prisma.InputJsonValue)
+    const { whatsapp, medicalHistory, ...restData } = data;
+    const phone = whatsapp || restData.phone;
+
+    const medicalHistoryInput = medicalHistory
+      ? (medicalHistory as unknown as Prisma.InputJsonValue)
       : undefined;
 
     return this.prisma.client.update({
       where: { id },
       data: {
-        ...data,
-        medicalHistory: medicalHistoryInput,
-      },
+        ...restData,
+        ...(phone !== undefined && { phone }),
+        ...(medicalHistoryInput !== undefined && {
+          medicalHistory: medicalHistoryInput,
+        }),
+      } as Prisma.ClientUpdateInput,
     });
   }
 
@@ -216,7 +241,12 @@ export class ClientsService {
   async recordManualPayment(
     userId: string,
     clientId: string,
-    dto: { paymentType: string; validUntil: string; notes?: string; amount?: number },
+    dto: {
+      paymentType: string;
+      validUntil: string;
+      notes?: string;
+      amount?: number;
+    },
   ) {
     await this.findOne(userId, clientId);
     const validUntilDate = new Date(dto.validUntil);
@@ -253,8 +283,14 @@ export class ClientsService {
     await this.findOne(userId, clientId);
     const normalizedStatus = status.toUpperCase();
 
-    const clientStatus = normalizedStatus === "INACTIVE" ? "Inactive" : "Active";
-    const subscriptionStatus = normalizedStatus === "PAUSED" ? "PAUSED" : (normalizedStatus === "INACTIVE" ? "OVERDUE" : "ACTIVE");
+    const clientStatus =
+      normalizedStatus === "INACTIVE" ? "Inactive" : "Active";
+    const subscriptionStatus =
+      normalizedStatus === "PAUSED"
+        ? "PAUSED"
+        : normalizedStatus === "INACTIVE"
+          ? "OVERDUE"
+          : "ACTIVE";
 
     return this.prisma.client.update({
       where: { id: clientId },
@@ -271,12 +307,16 @@ export class ClientsService {
       orderBy: { name: "asc" },
     });
 
-    const headers = "Nome,Telefone,Email,Modalidade,Status,VencimentoAssinatura\n";
+    const headers =
+      "Nome,Telefone,Email,Modalidade,Status,VencimentoAssinatura\n";
     const rows = clients
       .map((c) => {
-        const modality = c.modality || (c.type === "In-Person" ? "PRESENCIAL" : "ONLINE");
+        const modality =
+          c.modality || (c.type === "In-Person" ? "PRESENCIAL" : "ONLINE");
         const status = c.subscriptionStatus === "PAUSED" ? "PAUSED" : c.status;
-        const expiry = c.currentPeriodEnd ? c.currentPeriodEnd.toISOString().split("T")[0] : "N/A";
+        const expiry = c.currentPeriodEnd
+          ? c.currentPeriodEnd.toISOString().split("T")[0]
+          : "N/A";
         return `"${c.name}","${c.phone}","${c.email}","${modality}","${status}","${expiry}"`;
       })
       .join("\n");
@@ -284,7 +324,11 @@ export class ClientsService {
     return headers + rows;
   }
 
-  async getActivityHeatmap(userId: string, clientId: string, days: number = 30) {
+  async getActivityHeatmap(
+    userId: string,
+    clientId: string,
+    days: number = 30,
+  ) {
     await this.findOne(userId, clientId);
 
     const startDate = new Date();
@@ -299,7 +343,10 @@ export class ClientsService {
       orderBy: { completedAt: "asc" },
     });
 
-    const sessionByDateMap = new Map<string, { workoutName?: string; durationMinutes: number }>();
+    const sessionByDateMap = new Map<
+      string,
+      { workoutName?: string; durationMinutes: number }
+    >();
     sessions.forEach((s) => {
       const dateKey = s.completedAt.toISOString().split("T")[0];
       sessionByDateMap.set(dateKey, {
@@ -308,7 +355,12 @@ export class ClientsService {
       });
     });
 
-    const daysList: Array<{ date: string; status: "COMPLETED" | "EXPIRED" | "NO_ACTIVITY"; workoutName?: string; durationMinutes?: number }> = [];
+    const daysList: Array<{
+      date: string;
+      status: "COMPLETED" | "EXPIRED" | "NO_ACTIVITY";
+      workoutName?: string;
+      durationMinutes?: number;
+    }> = [];
     let currentStreak = 0;
     let tempStreak = 0;
     let totalCompletedMonth = 0;

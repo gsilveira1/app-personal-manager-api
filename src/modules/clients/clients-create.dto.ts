@@ -43,6 +43,10 @@ class MedicalHistoryDto {
   @IsOptional()
   @IsBoolean()
   drinker?: boolean;
+
+  @IsOptional()
+  @IsString()
+  observations?: string;
 }
 
 export class CreateClientDto {
@@ -101,4 +105,12 @@ export class CreateClientDto {
   @IsOptional()
   @IsUUID()
   planId?: string;
+
+  @IsString()
+  @IsOptional()
+  subscriptionStatus?: string; // 'ACTIVE' | 'OVERDUE' | 'PAUSED'
+
+  @IsBoolean()
+  @IsOptional()
+  notificationEnabled?: boolean;
 }
