@@ -428,7 +428,7 @@ describe("SessionsService", () => {
   });
 
   describe("toggleComplete", () => {
-    it("should flip completed from false to true", async () => {
+    it("should flip completed from false to true for legacy session", async () => {
       prisma.session.findUnique.mockResolvedValue({
         ...mockSession,
         completed: false,
@@ -443,10 +443,14 @@ describe("SessionsService", () => {
       expect(prisma.session.update).toHaveBeenCalledWith({
         where: { id: sessionId },
         data: { completed: true },
+        include: {
+          client: { select: { name: true, avatar: true } },
+          workout: { select: { id: true, name: true, letter: true } },
+        },
       });
     });
 
-    it("should flip completed from true to false", async () => {
+    it("should flip completed from true to false for legacy session", async () => {
       prisma.session.findUnique.mockResolvedValue({
         ...mockSession,
         completed: true,
@@ -461,7 +465,124 @@ describe("SessionsService", () => {
       expect(prisma.session.update).toHaveBeenCalledWith({
         where: { id: sessionId },
         data: { completed: false },
+        include: {
+          client: { select: { name: true, avatar: true } },
+          workout: { select: { id: true, name: true, letter: true } },
+        },
       });
+    });
+
+    it("should toggle completed on virtual recurring session by upserting SessionException", async () => {
+      const virtualId = "rec-event-1_2025-02-03T10:00:00.000Z";
+      const mockRecEvent = {
+        id: "rec-event-1",
+        userId,
+        clientId,
+        type: "In-Person",
+        category: "Workout",
+        durationMinutes: 60,
+        notes: "Recurring note",
+        linkedWorkoutId: null,
+        client: { name: "Maria Santos", avatar: null },
+        exceptions: [],
+      };
+
+      prisma.recurringEvent.findUnique.mockResolvedValue(mockRecEvent);
+      prisma.sessionException.upsert.mockResolvedValue({
+        id: "exc-1",
+        recurringEventId: "rec-event-1",
+        originalStartTime: new Date("2025-02-03T10:00:00.000Z"),
+        completed: true,
+        cancelled: false,
+        newStartTime: null,
+        durationMinutes: null,
+        notes: null,
+      });
+
+      const result = await service.toggleComplete(userId, virtualId);
+
+      expect(prisma.sessionException.upsert).toHaveBeenCalledWith({
+        where: {
+          recurringEventId_originalStartTime: {
+            recurringEventId: "rec-event-1",
+            originalStartTime: new Date("2025-02-03T10:00:00.000Z"),
+          },
+        },
+        create: {
+          recurringEventId: "rec-event-1",
+          originalStartTime: new Date("2025-02-03T10:00:00.000Z"),
+          completed: true,
+          cancelled: false,
+        },
+        update: {
+          completed: true,
+        },
+      });
+      expect(result).toHaveProperty("id", virtualId);
+      expect(result).toHaveProperty("completed", true);
+      expect(result).toHaveProperty("isVirtual", true);
+    });
+
+    it("should toggle completed from true to false on virtual session with existing exception", async () => {
+      const virtualId = "rec-event-1_2025-02-03T10:00:00.000Z";
+      const mockRecEvent = {
+        id: "rec-event-1",
+        userId,
+        clientId,
+        type: "In-Person",
+        category: "Workout",
+        durationMinutes: 60,
+        notes: null,
+        linkedWorkoutId: null,
+        client: { name: "Maria Santos", avatar: null },
+        exceptions: [
+          {
+            id: "exc-1",
+            recurringEventId: "rec-event-1",
+            originalStartTime: new Date("2025-02-03T10:00:00.000Z"),
+            completed: true,
+            cancelled: false,
+          },
+        ],
+      };
+
+      prisma.recurringEvent.findUnique.mockResolvedValue(mockRecEvent);
+      prisma.sessionException.upsert.mockResolvedValue({
+        id: "exc-1",
+        recurringEventId: "rec-event-1",
+        originalStartTime: new Date("2025-02-03T10:00:00.000Z"),
+        completed: false,
+        cancelled: false,
+      });
+
+      const result = await service.toggleComplete(userId, virtualId);
+
+      expect(prisma.sessionException.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: { completed: false },
+        }),
+      );
+      expect(result.completed).toBe(false);
+    });
+
+    it("should throw NotFoundException if virtual session recurring event does not exist", async () => {
+      prisma.recurringEvent.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.toggleComplete(userId, "nonexistent_2025-02-03T10:00:00.000Z"),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("should throw ForbiddenException if virtual session belongs to another user", async () => {
+      prisma.recurringEvent.findUnique.mockResolvedValue({
+        id: "rec-event-1",
+        userId: "other-user",
+        exceptions: [],
+      });
+
+      await expect(
+        service.toggleComplete(userId, "rec-event-1_2025-02-03T10:00:00.000Z"),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -475,6 +596,26 @@ describe("SessionsService", () => {
       expect(prisma.session.delete).toHaveBeenCalledWith({
         where: { id: sessionId },
       });
+    });
+
+    it("should cancel occurrence of recurring event when removing virtual session", async () => {
+      const virtualId = "rec-event-1_2025-02-03T10:00:00.000Z";
+      prisma.recurringEvent.findUnique.mockResolvedValue({
+        id: "rec-event-1",
+        userId,
+      });
+      prisma.sessionException.upsert.mockResolvedValue({ id: "exc-del" });
+
+      await service.remove(userId, virtualId);
+
+      expect(prisma.sessionException.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({
+            recurringEventId: "rec-event-1",
+            cancelled: true,
+          }),
+        }),
+      );
     });
   });
 

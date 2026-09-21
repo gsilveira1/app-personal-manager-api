@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { validate } from "class-validator";
 import { plainToInstance } from "class-transformer";
 import { CreateClientDto } from "./clients-create.dto";
+import { ClientStatus, ClientModality } from "@prisma/client";
 
 describe("CreateClientDto", () => {
   const createDto = (data: Record<string, any>): CreateClientDto => {
@@ -12,7 +13,7 @@ describe("CreateClientDto", () => {
     name: "Maria Santos",
     email: "maria@example.com",
     phone: "53999001122",
-    type: "In-Person",
+    modality: ClientModality.PRESENCIAL,
   };
 
   it("should pass with valid required fields", async () => {
@@ -24,12 +25,12 @@ describe("CreateClientDto", () => {
   it("should pass with all optional fields", async () => {
     const dto = createDto({
       ...validData,
-      status: "Active",
+      status: ClientStatus.ACTIVE,
       goal: "Hipertrofia",
       avatar: "https://example.com/avatar.jpg",
       notes: "Aluna dedicada",
       dateOfBirth: "1995-03-15",
-      checkInFreq: "Weekly",
+      checkInFrequency: "Weekly",
       planId: "550e8400-e29b-41d4-a716-446655440000",
       medicalHistory: {
         objective: ["Saúde", "Estética"],
@@ -46,7 +47,7 @@ describe("CreateClientDto", () => {
     const dto = createDto({
       email: "maria@example.com",
       phone: "123",
-      type: "In-Person",
+      modality: ClientModality.PRESENCIAL,
     });
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === "name")).toBe(true);
@@ -62,20 +63,10 @@ describe("CreateClientDto", () => {
     const dto = createDto({
       name: "Maria",
       email: "maria@example.com",
-      type: "In-Person",
+      modality: ClientModality.PRESENCIAL,
     });
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === "phone")).toBe(true);
-  });
-
-  it("should fail when type is missing", async () => {
-    const dto = createDto({
-      name: "Maria",
-      email: "maria@example.com",
-      phone: "123",
-    });
-    const errors = await validate(dto);
-    expect(errors.some((e) => e.property === "type")).toBe(true);
   });
 
   it("should fail when planId is not a valid UUID", async () => {
@@ -90,9 +81,44 @@ describe("CreateClientDto", () => {
     expect(errors.some((e) => e.property === "status")).toBe(true);
   });
 
-  it("should pass with valid status enum (Lead)", async () => {
-    const dto = createDto({ ...validData, status: "Lead" });
+  it("should pass with valid status enum (LEAD)", async () => {
+    const dto = createDto({ ...validData, status: ClientStatus.LEAD });
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
   });
+
+  it("should pass and map checkInFrequency and type with whitelist/forbidNonWhitelisted", async () => {
+    const dto = createDto({
+      ...validData,
+      type: "Online",
+      checkInFrequency: "Weekly",
+      subscriptionStatus: "Active",
+    });
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    expect(errors).toHaveLength(0);
+    expect(dto.modality).toBe(ClientModality.ONLINE);
+    expect(dto.status).toBe(ClientStatus.ACTIVE);
+    expect(dto.checkInFrequency).toBe("Weekly");
+  });
+
+  it("should pass when checkInFreq is provided directly", async () => {
+    const dto = createDto({
+      ...validData,
+      modality: ClientModality.HYBRID,
+      checkInFreq: "Bi-weekly",
+    });
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    expect(errors).toHaveLength(0);
+    expect(dto.checkInFreq).toBe("Bi-weekly");
+  });
+
+  it("should fail when unknown unwhitelisted property is passed with forbidNonWhitelisted", async () => {
+    const dto = createDto({
+      ...validData,
+      unknownProp: "malicious_input",
+    });
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    expect(errors.some((e) => e.property === "unknownProp")).toBe(true);
+  });
 });
+

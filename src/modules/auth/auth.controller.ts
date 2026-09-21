@@ -14,6 +14,8 @@ import { AuthService } from "./auth.service";
 import { UsersService } from "../users/users.service";
 import { CreateUserDto } from "../users/users-create.dto";
 import { AuthLoginDTO } from "./auth-login.dto";
+import { ForgotPasswordDto } from "./dto/forgot-password.dto";
+import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { AuthGuard } from "@nestjs/passport";
 import { RequestWithUser } from "../../types/global";
 
@@ -25,6 +27,7 @@ export class AuthController {
   ) {}
 
   @Post("login")
+  @HttpCode(HttpStatus.OK)
   async login(@Body() body: AuthLoginDTO) {
     const user = await this.authService.validateUser(body.email, body.password);
     if (!user) {
@@ -55,4 +58,17 @@ export class AuthController {
     // Usamos o UsersService para buscar os dados frescos do banco (sem a senha)
     return this.usersService.findOne(req.user.userId);
   }
+
+  @Post("forgot-password")
+  @HttpCode(HttpStatus.OK)
+  async forgotPassword(@Body() body: ForgotPasswordDto) {
+    return this.authService.requestPasswordReset(body.email);
+  }
+
+  @Post("reset-password")
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(@Body() body: ResetPasswordDto) {
+    return this.authService.resetPassword(body);
+  }
 }
+

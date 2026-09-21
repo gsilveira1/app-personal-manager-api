@@ -109,18 +109,18 @@ describe("StudentsController", () => {
   it("should update student status to PAUSED", async () => {
     mockClientsService.updateStudentStatus.mockResolvedValue({
       id: "student-1",
-      subscriptionStatus: "PAUSED",
+      status: "PAUSED",
     });
 
     const result = await controller.updateStatus(mockReq, "student-1", {
-      status: "PAUSED",
+      status: "PAUSED" as any,
     });
     expect(clientsService.updateStudentStatus).toHaveBeenCalledWith(
       "user-123",
       "student-1",
       "PAUSED",
     );
-    expect(result.subscriptionStatus).toBe("PAUSED");
+    expect(result.status).toBe("PAUSED");
   });
 
   it("should get activity heatmap", async () => {
@@ -131,7 +131,11 @@ describe("StudentsController", () => {
       days: [],
     });
 
-    const result = await controller.getActivityHeatmap(mockReq, "student-1", 30);
+    const result = await controller.getActivityHeatmap(
+      mockReq,
+      "student-1",
+      30,
+    );
     expect(clientsService.getActivityHeatmap).toHaveBeenCalledWith(
       "user-123",
       "student-1",
@@ -142,7 +146,8 @@ describe("StudentsController", () => {
 
   it("should request reassessment", async () => {
     mockAnamnesisService.requestReassessment.mockResolvedValue({
-      message: "Solicitação de reavaliação enfileirada no WhatsApp com sucesso.",
+      message:
+        "Solicitação de reavaliação enfileirada no WhatsApp com sucesso.",
     });
 
     const result = await controller.requestReassessment(mockReq, "student-1");

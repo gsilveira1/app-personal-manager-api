@@ -44,10 +44,10 @@ describe("AuthLoginDTO", () => {
     expect(errors.some((e) => e.property === "password")).toBe(true);
   });
 
-  it("should fail when password is too long (> 16 chars)", async () => {
+  it("should fail when password is too long (> 128 chars)", async () => {
     const dto = createDto({
       email: "user@example.com",
-      password: "12345678901234567",
+      password: "a".repeat(129),
     });
     const errors = await validate(dto);
     expect(errors.length).toBeGreaterThan(0);

@@ -58,7 +58,9 @@ export class AnamnesisService {
     }
 
     if (payload.action !== "ANAMNESIS") {
-      throw new ForbiddenException("Token is not valid for anamnesis submission");
+      throw new ForbiddenException(
+        "Token is not valid for anamnesis submission",
+      );
     }
 
     const anamnesisRecord = await this.prisma.anamnesis.findFirst({
@@ -66,7 +68,9 @@ export class AnamnesisService {
     });
 
     if (!anamnesisRecord) {
-      throw new BadRequestException("Este link de anamnese já foi utilizado ou é inválido.");
+      throw new BadRequestException(
+        "Este link de anamnese já foi utilizado ou é inválido.",
+      );
     }
 
     const client = await this.prisma.client.findUnique({
@@ -111,7 +115,9 @@ export class AnamnesisService {
     });
 
     if (!anamnesisDraft) {
-      throw new BadRequestException("Este formulário já foi enviado anteriormente.");
+      throw new BadRequestException(
+        "Este formulário já foi enviado anteriormente.",
+      );
     }
 
     // Mark previous anamneses as not current
@@ -196,7 +202,8 @@ export class AnamnesisService {
     });
 
     return {
-      message: "Solicitação de reavaliação enfileirada no WhatsApp com sucesso.",
+      message:
+        "Solicitação de reavaliação enfileirada no WhatsApp com sucesso.",
       token,
       link,
     };

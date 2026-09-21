@@ -4,6 +4,7 @@ import {
   WorkoutSheetsController,
   WorkoutSheetsDetailController,
   WorkoutTemplatesController,
+  WorkoutsController,
 } from "./workout-sheets.controller";
 
 @Module({
@@ -11,6 +12,7 @@ import {
     WorkoutSheetsController,
     WorkoutSheetsDetailController,
     WorkoutTemplatesController,
+    WorkoutsController,
   ],
   providers: [WorkoutSheetsService],
   exports: [WorkoutSheetsService],

@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Delete,
   Body,
   Param,
   UseGuards,
@@ -78,5 +80,41 @@ export class WorkoutTemplatesController {
       sheetId,
       dto,
     );
+  }
+}
+
+@UseGuards(AuthGuard("jwt"))
+@Controller("workouts")
+export class WorkoutsController {
+  constructor(private readonly workoutSheetsService: WorkoutSheetsService) {}
+
+  @Get()
+  findAll(@Request() req: RequestWithUser) {
+    return this.workoutSheetsService.findAllWorkouts(req.user.userId);
+  }
+
+  @Get(":id")
+  findOne(@Request() req: RequestWithUser, @Param("id") id: string) {
+    return this.workoutSheetsService.findOneWorkout(req.user.userId, id);
+  }
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  create(@Request() req: RequestWithUser, @Body() body: any) {
+    return this.workoutSheetsService.createWorkout(req.user.userId, body);
+  }
+
+  @Patch(":id")
+  update(
+    @Request() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() body: any,
+  ) {
+    return this.workoutSheetsService.updateWorkout(req.user.userId, id, body);
+  }
+
+  @Delete(":id")
+  remove(@Request() req: RequestWithUser, @Param("id") id: string) {
+    return this.workoutSheetsService.deleteWorkout(req.user.userId, id);
   }
 }

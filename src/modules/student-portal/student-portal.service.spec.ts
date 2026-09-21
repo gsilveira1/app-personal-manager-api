@@ -2,12 +2,10 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { JwtService } from "@nestjs/jwt";
 import { StudentPortalService } from "./student-portal.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { ForbiddenException } from "@nestjs/common";
-
 describe("StudentPortalService", () => {
   let service: StudentPortalService;
-  let prisma: PrismaService;
-  let jwt: JwtService;
+  let _prisma: PrismaService;
+  let _jwt: JwtService;
 
   const mockPrismaService = {
     client: {
@@ -40,8 +38,8 @@ describe("StudentPortalService", () => {
     }).compile();
 
     service = module.get<StudentPortalService>(StudentPortalService);
-    prisma = module.get<PrismaService>(PrismaService);
-    jwt = module.get<JwtService>(JwtService);
+    _prisma = module.get<PrismaService>(PrismaService);
+    _jwt = module.get<JwtService>(JwtService);
     jest.clearAllMocks();
   });
 
@@ -52,13 +50,15 @@ describe("StudentPortalService", () => {
     });
     mockPrismaService.client.findUnique.mockResolvedValue({
       id: "client-1",
-      subscriptionStatus: "PAUSED",
+      status: "PAUSED",
       user: { tenant: { status: "ACTIVE" } },
     });
 
     await expect(
       service.getStudentActiveWorkoutSheet("valid-token"),
-    ).rejects.toThrow("Seus treinos estão pausados no momento. Fale com seu treinador para retornar.");
+    ).rejects.toThrow(
+      "Seus treinos estão pausados no momento. Fale com seu treinador para retornar.",
+    );
   });
 
   it("should block access if tenant status is BLOCKED", async () => {
@@ -68,13 +68,15 @@ describe("StudentPortalService", () => {
     });
     mockPrismaService.client.findUnique.mockResolvedValue({
       id: "client-1",
-      subscriptionStatus: "ACTIVE",
+      status: "ACTIVE",
       user: { tenant: { status: "BLOCKED" } },
     });
 
     await expect(
       service.getStudentActiveWorkoutSheet("valid-token"),
-    ).rejects.toThrow("Plataforma temporariamente indisponível. Por favor, contate seu treinador.");
+    ).rejects.toThrow(
+      "Plataforma temporariamente indisponível. Por favor, contate seu treinador.",
+    );
   });
 
   it("should return workout sheet with pre-populated last loads", async () => {
@@ -86,7 +88,7 @@ describe("StudentPortalService", () => {
       id: "client-1",
       name: "Mariana",
       phone: "+5511999998888",
-      subscriptionStatus: "ACTIVE",
+      status: "ACTIVE",
       user: {
         name: "Viviana Trainer",
         phone: "+5511977776666",
@@ -138,7 +140,7 @@ describe("StudentPortalService", () => {
     });
     mockPrismaService.client.findUnique.mockResolvedValue({
       id: "client-1",
-      subscriptionStatus: "ACTIVE",
+      status: "ACTIVE",
       user: { tenant: { status: "ACTIVE" } },
     });
     mockPrismaService.workoutSheetItem.findUnique.mockResolvedValue({

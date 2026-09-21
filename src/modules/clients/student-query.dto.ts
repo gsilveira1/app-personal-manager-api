@@ -25,4 +25,12 @@ export class StudentQueryDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  sortBy?: string = "name";
+
+  @IsOptional()
+  @IsString()
+  sortOrder?: "asc" | "desc" | "ASC" | "DESC" = "asc";
 }

@@ -85,13 +85,19 @@ export class ExercisesService {
     const customExercises = await this.prisma.exercise.findMany({
       where: {
         OR: [{ userId }, { isCustom: false }],
-        ...(query.bodyPart ? { bodyPart: { equals: query.bodyPart, mode: "insensitive" } } : {}),
-        ...(query.equipment ? { equipment: { equals: query.equipment, mode: "insensitive" } } : {}),
+        ...(query.bodyPart
+          ? { bodyPart: { equals: query.bodyPart, mode: "insensitive" } }
+          : {}),
+        ...(query.equipment
+          ? { equipment: { equals: query.equipment, mode: "insensitive" } }
+          : {}),
         ...(query.search
           ? {
               OR: [
                 { name: { contains: query.search, mode: "insensitive" } },
-                { targetMuscle: { contains: query.search, mode: "insensitive" } },
+                {
+                  targetMuscle: { contains: query.search, mode: "insensitive" },
+                },
               ],
             }
           : {}),
@@ -101,10 +107,16 @@ export class ExercisesService {
 
     // Filter global exercises in-memory if query params present
     const filteredGlobals = GLOBAL_EXERCISES.filter((ex) => {
-      if (query.bodyPart && ex.bodyPart.toLowerCase() !== query.bodyPart.toLowerCase()) {
+      if (
+        query.bodyPart &&
+        ex.bodyPart.toLowerCase() !== query.bodyPart.toLowerCase()
+      ) {
         return false;
       }
-      if (query.equipment && ex.equipment.toLowerCase() !== query.equipment.toLowerCase()) {
+      if (
+        query.equipment &&
+        ex.equipment.toLowerCase() !== query.equipment.toLowerCase()
+      ) {
         return false;
       }
       if (

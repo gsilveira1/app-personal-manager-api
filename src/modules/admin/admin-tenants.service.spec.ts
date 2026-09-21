@@ -5,7 +5,7 @@ import { ConflictException } from "@nestjs/common";
 
 describe("AdminTenantsService", () => {
   let service: AdminTenantsService;
-  let prisma: PrismaService;
+  let _prisma: PrismaService;
 
   const mockPrismaService = {
     tenant: {
@@ -26,7 +26,7 @@ describe("AdminTenantsService", () => {
     }).compile();
 
     service = module.get<AdminTenantsService>(AdminTenantsService);
-    prisma = module.get<PrismaService>(PrismaService);
+    _prisma = module.get<PrismaService>(PrismaService);
     jest.clearAllMocks();
   });
 
@@ -57,7 +57,11 @@ describe("AdminTenantsService", () => {
       name: "Novo Personal",
       slug: "novo-personal",
       status: "ACTIVE",
-      features: { maxStudents: 30, canUploadVideos: true, whatsappAlerts: true },
+      features: {
+        maxStudents: 30,
+        canUploadVideos: true,
+        whatsappAlerts: true,
+      },
     });
 
     const result = await service.create({

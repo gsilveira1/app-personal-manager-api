@@ -5,7 +5,7 @@ import { BadRequestException } from "@nestjs/common";
 
 describe("WorkoutSheetsService", () => {
   let service: WorkoutSheetsService;
-  let prisma: PrismaService;
+  let _prisma: PrismaService;
 
   const mockPrismaService: any = {
     client: {
@@ -29,6 +29,9 @@ describe("WorkoutSheetsService", () => {
     workoutTemplate: {
       create: jest.fn(),
       findMany: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
     },
     $transaction: jest.fn((callback: (prisma: any) => Promise<any>) =>
       callback(mockPrismaService),
@@ -44,7 +47,7 @@ describe("WorkoutSheetsService", () => {
     }).compile();
 
     service = module.get<WorkoutSheetsService>(WorkoutSheetsService);
-    prisma = module.get<PrismaService>(PrismaService);
+    _prisma = module.get<PrismaService>(PrismaService);
     jest.clearAllMocks();
   });
 
@@ -111,7 +114,9 @@ describe("WorkoutSheetsService", () => {
           blocks: [
             {
               type: "REGULAR",
-              exercises: [{ exerciseName: "Supino Reto", sets: 4, reps: "8-10" }],
+              exercises: [
+                { exerciseName: "Supino Reto", sets: 4, reps: "8-10" },
+              ],
             },
           ],
         },
@@ -146,5 +151,76 @@ describe("WorkoutSheetsService", () => {
 
     expect(result.id).toBe("tmpl-1");
     expect(mockPrismaService.workoutTemplate.create).toHaveBeenCalled();
+  });
+
+  describe("Workouts CRUD (Compatibility with library workouts)", () => {
+    it("should list all workouts as mapped WorkoutPlans", async () => {
+      mockPrismaService.workoutTemplate.findMany.mockResolvedValue([
+        {
+          id: "tmpl-1",
+          name: "Treino A",
+          description: "Desc",
+          structure: {
+            exercises: [{ name: "Supino", sets: 3, reps: "10" }],
+            tags: ["peito"],
+          },
+          createdAt: new Date(),
+        },
+      ]);
+
+      const result = await service.findAllWorkouts("user-1");
+      expect(result).toHaveLength(1);
+      expect(result[0].title).toBe("Treino A");
+      expect(result[0].exercises[0].name).toBe("Supino");
+    });
+
+    it("should create a new workout template", async () => {
+      mockPrismaService.workoutTemplate.create.mockResolvedValue({
+        id: "tmpl-new",
+        name: "Novo Treino",
+        description: "Desc",
+        structure: { exercises: [], tags: [] },
+        createdAt: new Date(),
+      });
+
+      const result = await service.createWorkout("user-1", {
+        title: "Novo Treino",
+        exercises: [],
+        tags: [],
+      });
+      expect(result.title).toBe("Novo Treino");
+    });
+
+    it("should update a workout template", async () => {
+      mockPrismaService.workoutTemplate.findUnique.mockResolvedValue({
+        id: "tmpl-1",
+        userId: "user-1",
+        name: "Treino A",
+        structure: { exercises: [] },
+      });
+      mockPrismaService.workoutTemplate.update.mockResolvedValue({
+        id: "tmpl-1",
+        name: "Treino A Modificado",
+        description: "Nova desc",
+        structure: { exercises: [] },
+        createdAt: new Date(),
+      });
+
+      const result = await service.updateWorkout("user-1", "tmpl-1", {
+        title: "Treino A Modificado",
+      });
+      expect(result.title).toBe("Treino A Modificado");
+    });
+
+    it("should delete a workout template", async () => {
+      mockPrismaService.workoutTemplate.findUnique.mockResolvedValue({
+        id: "tmpl-1",
+        userId: "user-1",
+      });
+      mockPrismaService.workoutTemplate.delete.mockResolvedValue({});
+
+      const result = await service.deleteWorkout("user-1", "tmpl-1");
+      expect(result.message).toContain("sucesso");
+    });
   });
 });

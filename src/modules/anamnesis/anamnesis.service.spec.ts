@@ -2,16 +2,12 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { JwtService } from "@nestjs/jwt";
 import { AnamnesisService } from "./anamnesis.service";
 import { PrismaService } from "../prisma/prisma.service";
-import {
-  BadRequestException,
-  ForbiddenException,
-  UnauthorizedException,
-} from "@nestjs/common";
+import { BadRequestException } from "@nestjs/common";
 
 describe("AnamnesisService", () => {
   let service: AnamnesisService;
-  let prisma: PrismaService;
-  let jwt: JwtService;
+  let _prisma: PrismaService;
+  let _jwt: JwtService;
 
   const mockPrismaService = {
     client: {
@@ -47,8 +43,8 @@ describe("AnamnesisService", () => {
     }).compile();
 
     service = module.get<AnamnesisService>(AnamnesisService);
-    prisma = module.get<PrismaService>(PrismaService);
-    jwt = module.get<JwtService>(JwtService);
+    _prisma = module.get<PrismaService>(PrismaService);
+    _jwt = module.get<JwtService>(JwtService);
     jest.clearAllMocks();
   });
 

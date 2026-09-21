@@ -4,7 +4,7 @@ import {
   NotFoundException,
   ForbiddenException,
 } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, ClientStatus, ClientModality } from "@prisma/client";
 
 import { PrismaService } from "../prisma/prisma.service";
 import { GcsService } from "../gcs/gcs.service";
@@ -24,15 +24,11 @@ export class ClientsService {
         ? (data.medicalHistory as unknown as Prisma.InputJsonValue)
         : undefined;
 
-      const { whatsapp, ...restData } = data;
-      const phone = data.whatsapp || data.phone || "";
-      const modality =
-        data.modality || (data.type === "In-Person" ? "PRESENCIAL" : "ONLINE");
-      const type =
-        data.type || (modality === "PRESENCIAL" ? "In-Person" : "Online");
-      const subscriptionStatus = data.subscriptionStatus || "ACTIVE";
-      const notificationEnabled =
-        data.notificationEnabled !== undefined ? data.notificationEnabled : true;
+      const dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : undefined;
+      const status = data.status || ClientStatus.ACTIVE;
+      const modality = data.modality || ClientModality.PRESENCIAL;
+      const planId = data.planId || undefined;
+      const checkInFreq = data.checkInFrequency || data.checkInFreq || undefined;
 
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -41,24 +37,31 @@ export class ClientsService {
 
       const client = await this.prisma.client.create({
         data: {
-          ...restData,
-          phone,
+          name: data.name,
+          email: data.email,
+          phone: data.phone,
+          status,
           modality,
-          type,
-          subscriptionStatus,
-          notificationEnabled,
+          goal: data.goal,
+          avatar: data.avatar,
+          notes: data.notes,
+          dateOfBirth,
+          checkInFreq,
+          notificationEnabled:
+            data.notificationEnabled !== undefined ? data.notificationEnabled : true,
+          planId,
           medicalHistory: medicalHistoryInput,
-          userId, // Associa ao utilizador logado
-          tenantId: user?.tenantId || null, // Associa ao tenant do utilizador
+          userId,
+          tenantId: user?.tenantId || null,
         },
       });
 
-      if (phone) {
+      if (data.phone && client.notificationEnabled) {
         await this.prisma.notificationLog
           .create({
             data: {
               tenantId: user?.tenantId || null,
-              recipientPhone: phone,
+              recipientPhone: data.phone,
               templateType: "WELCOME_ANAMNESIS",
               status: "QUEUED",
               channel: "WHATSAPP",
@@ -78,7 +81,7 @@ export class ClientsService {
 
   async findAll(userId: string) {
     return this.prisma.client.findMany({
-      where: { userId }, // Filtra apenas clientes deste utilizador
+      where: { userId },
       include: {
         plan: { select: { name: true } },
       },
@@ -94,6 +97,8 @@ export class ClientsService {
       search?: string;
       modality?: string;
       status?: string;
+      sortBy?: string;
+      sortOrder?: string;
     },
   ) {
     const page = Number(query.page) || 1;
@@ -113,18 +118,52 @@ export class ClientsService {
     }
 
     if (query.modality) {
-      where.modality = query.modality;
+      const modUpper = query.modality.toUpperCase();
+      if (modUpper === "PRESENCIAL" || modUpper === "ONLINE" || modUpper === "HYBRID") {
+        where.modality = modUpper as ClientModality;
+      }
     }
 
     if (query.status) {
-      if (query.status.toUpperCase() === "PAUSED") {
-        where.subscriptionStatus = "PAUSED";
-      } else if (query.status.toUpperCase() === "ACTIVE") {
-        where.status = "Active";
-      } else if (query.status.toUpperCase() === "INACTIVE") {
-        where.status = "Inactive";
+      const statUpper = query.status.toUpperCase();
+      if (statUpper === "ACTIVE" || statUpper === "ATIVO") {
+        where.status = ClientStatus.ACTIVE;
+      } else if (statUpper === "PAUSED" || statUpper === "PAUSADA" || statUpper === "PAUSADO") {
+        where.status = ClientStatus.PAUSED;
+      } else if (
+        statUpper === "OVERDUE" ||
+        statUpper === "EM ATRASO" ||
+        statUpper === "ATRASADO" ||
+        statUpper === "INACTIVE"
+      ) {
+        where.status = ClientStatus.OVERDUE;
+      } else if (statUpper === "LEAD") {
+        where.status = ClientStatus.LEAD;
       }
     }
+
+    const sortOrderDir: Prisma.SortOrder =
+      query.sortOrder && String(query.sortOrder).toLowerCase() === "desc" ? "desc" : "asc";
+
+    const allowedSortMap: Record<string, keyof Prisma.ClientOrderByWithRelationInput> = {
+      name: "name",
+      email: "email",
+      status: "status",
+      modality: "modality",
+      createdat: "createdAt",
+      created_at: "createdAt",
+      updatedat: "updatedAt",
+      updated_at: "updatedAt",
+      dateofbirth: "dateOfBirth",
+      date_of_birth: "dateOfBirth",
+    };
+
+    const requestedKey = (query.sortBy || "name").toLowerCase();
+    const resolvedField = allowedSortMap[requestedKey] || "name";
+
+    const orderBy: Prisma.ClientOrderByWithRelationInput = {
+      [resolvedField]: sortOrderDir,
+    };
 
     const [total, clients] = await Promise.all([
       this.prisma.client.count({ where }),
@@ -140,7 +179,7 @@ export class ClientsService {
             select: { id: true, name: true, expiresAt: true },
           },
         },
-        orderBy: { name: "asc" },
+        orderBy,
       }),
     ]);
 
@@ -148,17 +187,17 @@ export class ClientsService {
       id: c.id,
       name: c.name,
       email: c.email,
-      whatsapp: c.phone,
       phone: c.phone,
-      modality:
-        c.modality || (c.type === "In-Person" ? "PRESENCIAL" : "ONLINE"),
-      status:
-        c.subscriptionStatus === "PAUSED" ? "PAUSED" : c.status.toUpperCase(),
-      subscription: {
-        status: c.subscriptionStatus || "ACTIVE",
-        currentPeriodEnd: c.currentPeriodEnd,
-        planName: c.plan?.name || "Plano Padrão",
-      },
+      modality: c.modality,
+      status: c.status,
+      currentPeriodEnd: c.currentPeriodEnd,
+      goal: c.goal,
+      notes: c.notes,
+      dateOfBirth: c.dateOfBirth,
+      checkInFreq: c.checkInFreq,
+      checkInFrequency: c.checkInFreq,
+      notificationEnabled: c.notificationEnabled,
+      plan: c.plan,
       activeWorkoutSheet: c.workoutSheets[0] || null,
     }));
 
@@ -210,20 +249,38 @@ export class ClientsService {
   }
 
   async update(userId: string, id: string, data: UpdateClientDto) {
-    await this.findOne(userId, id); // Garante existência e permissão
+    await this.findOne(userId, id);
 
-    const { whatsapp, medicalHistory, ...restData } = data;
-    const phone = whatsapp || restData.phone;
+    const {
+      medicalHistory,
+      dateOfBirth,
+      planId,
+      checkInFrequency,
+      checkInFreq,
+      type,
+      subscriptionStatus,
+      status,
+      modality,
+      ...restData
+    } = data;
 
     const medicalHistoryInput = medicalHistory
       ? (medicalHistory as unknown as Prisma.InputJsonValue)
       : undefined;
 
+    const parsedDateOfBirth = dateOfBirth ? new Date(dateOfBirth) : undefined;
+    const parsedPlanId = planId === "" ? null : planId;
+    const effectiveCheckInFreq = checkInFrequency !== undefined ? checkInFrequency : checkInFreq;
+
     return this.prisma.client.update({
       where: { id },
       data: {
         ...restData,
-        ...(phone !== undefined && { phone }),
+        ...(status !== undefined && { status }),
+        ...(modality !== undefined && { modality }),
+        ...(effectiveCheckInFreq !== undefined && { checkInFreq: effectiveCheckInFreq }),
+        ...(parsedDateOfBirth !== undefined && { dateOfBirth: parsedDateOfBirth }),
+        ...(parsedPlanId !== undefined && { planId: parsedPlanId }),
         ...(medicalHistoryInput !== undefined && {
           medicalHistory: medicalHistoryInput,
         }),
@@ -232,7 +289,7 @@ export class ClientsService {
   }
 
   async remove(userId: string, id: string) {
-    await this.findOne(userId, id); // Garante existência e permissão
+    await this.findOne(userId, id);
     return this.prisma.client.delete({
       where: { id },
     });
@@ -265,8 +322,7 @@ export class ClientsService {
       this.prisma.client.update({
         where: { id: clientId },
         data: {
-          status: "Active",
-          subscriptionStatus: "ACTIVE",
+          status: ClientStatus.ACTIVE,
           currentPeriodEnd: validUntilDate,
         },
       }),
@@ -279,24 +335,32 @@ export class ClientsService {
     };
   }
 
-  async updateStudentStatus(userId: string, clientId: string, status: string) {
+  async updateStudentStatus(
+    userId: string,
+    clientId: string,
+    status: string | ClientStatus,
+  ) {
     await this.findOne(userId, clientId);
-    const normalizedStatus = status.toUpperCase();
+    let clientStatus: ClientStatus = ClientStatus.ACTIVE;
+    const upper = String(status).toUpperCase();
 
-    const clientStatus =
-      normalizedStatus === "INACTIVE" ? "Inactive" : "Active";
-    const subscriptionStatus =
-      normalizedStatus === "PAUSED"
-        ? "PAUSED"
-        : normalizedStatus === "INACTIVE"
-          ? "OVERDUE"
-          : "ACTIVE";
+    if (upper === "PAUSED" || upper === "PAUSADA" || upper === "PAUSADO") {
+      clientStatus = ClientStatus.PAUSED;
+    } else if (
+      upper === "OVERDUE" ||
+      upper === "EM ATRASO" ||
+      upper === "ATRASADO" ||
+      upper === "INACTIVE"
+    ) {
+      clientStatus = ClientStatus.OVERDUE;
+    } else if (upper === "LEAD") {
+      clientStatus = ClientStatus.LEAD;
+    }
 
     return this.prisma.client.update({
       where: { id: clientId },
       data: {
         status: clientStatus,
-        subscriptionStatus,
       },
     });
   }
@@ -307,17 +371,13 @@ export class ClientsService {
       orderBy: { name: "asc" },
     });
 
-    const headers =
-      "Nome,Telefone,Email,Modalidade,Status,VencimentoAssinatura\n";
+    const headers = "Nome,Telefone,Email,Modalidade,Status,VencimentoAssinatura\n";
     const rows = clients
       .map((c) => {
-        const modality =
-          c.modality || (c.type === "In-Person" ? "PRESENCIAL" : "ONLINE");
-        const status = c.subscriptionStatus === "PAUSED" ? "PAUSED" : c.status;
         const expiry = c.currentPeriodEnd
           ? c.currentPeriodEnd.toISOString().split("T")[0]
           : "N/A";
-        return `"${c.name}","${c.phone}","${c.email}","${modality}","${status}","${expiry}"`;
+        return `"${c.name}","${c.phone}","${c.email}","${c.modality}","${c.status}","${expiry}"`;
       })
       .join("\n");
 
@@ -433,17 +493,17 @@ export class ClientsService {
 
   async findLeads(userId: string) {
     return this.prisma.client.findMany({
-      where: { userId, status: "Lead" },
+      where: { userId, status: ClientStatus.LEAD },
       orderBy: { createdAt: "desc" },
     });
   }
 
   async convertLead(userId: string, id: string, planId?: string) {
-    await this.findOne(userId, id); // Ensures existence and ownership
+    await this.findOne(userId, id);
     return this.prisma.client.update({
       where: { id },
       data: {
-        status: "Active",
+        status: ClientStatus.ACTIVE,
         ...(planId ? { planId } : {}),
       },
     });
@@ -454,7 +514,7 @@ export class ClientsService {
     clientId: string,
     contentType: string,
   ) {
-    await this.findOne(userId, clientId); // Ensures existence and ownership
+    await this.findOne(userId, clientId);
 
     const ext = contentType.split("/")[1];
     const objectPath = `avatars/${userId}/${clientId}.${ext}`;

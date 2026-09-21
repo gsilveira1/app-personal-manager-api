@@ -11,10 +11,10 @@ import {
   IsUUID,
 } from "class-validator";
 import { Transform, Type } from "class-transformer";
-import { ClientStatus } from "@prisma/client";
+import { ClientStatus, ClientModality } from "@prisma/client";
 
 // DTO para validar o objeto JSON de histórico médico
-class MedicalHistoryDto {
+export class MedicalHistoryDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
@@ -59,20 +59,32 @@ export class CreateClientDto {
   @IsString()
   phone!: string;
 
-  @IsString()
-  @IsOptional()
-  whatsapp?: string;
-
   @IsEnum(ClientStatus)
   @IsOptional()
-  status?: ClientStatus; // Default é Active no banco, mas pode ser enviado
+  @Transform(({ value, obj }) => {
+    const raw = obj?.subscriptionStatus !== undefined ? obj.subscriptionStatus : (value ?? obj?.status);
+    if (raw === undefined || raw === null || raw === "") return ClientStatus.ACTIVE;
+    const s = String(raw).toUpperCase().trim();
+    if (s === "ACTIVE" || s === "ATIVO") return ClientStatus.ACTIVE;
+    if (s === "PAUSED" || s === "PAUSADA" || s === "PAUSADO") return ClientStatus.PAUSED;
+    if (s === "OVERDUE" || s === "EM ATRASO" || s === "EM_ATRASO" || s === "INACTIVE") return ClientStatus.OVERDUE;
+    if (s === "LEAD") return ClientStatus.LEAD;
+    return raw;
+  })
+  status?: ClientStatus = ClientStatus.ACTIVE;
 
-  @IsString()
-  type!: string; // 'In-Person' | 'Online'
-
-  @IsString()
+  @IsEnum(ClientModality)
   @IsOptional()
-  modality?: string; // 'ONLINE' | 'PRESENCIAL' | 'HYBRID'
+  @Transform(({ value, obj }) => {
+    const raw = obj?.type !== undefined ? obj.type : (value ?? obj?.modality);
+    if (raw === undefined || raw === null || raw === "") return ClientModality.PRESENCIAL;
+    const m = String(raw).toUpperCase().trim();
+    if (m === "PRESENCIAL" || m === "IN-PERSON" || m === "IN_PERSON") return ClientModality.PRESENCIAL;
+    if (m === "ONLINE") return ClientModality.ONLINE;
+    if (m === "HYBRID" || m === "HÍBRIDO" || m === "HIBRIDO") return ClientModality.HYBRID;
+    return raw;
+  })
+  modality?: ClientModality = ClientModality.PRESENCIAL;
 
   @IsString()
   @IsOptional()
@@ -88,12 +100,36 @@ export class CreateClientDto {
 
   @IsDateString()
   @IsOptional()
-  @Transform(({ value }) => (value ? new Date(value).toISOString() : value))
+  @Transform(({ value }) => {
+    if (!value || value === "") return undefined;
+    try {
+      return new Date(value).toISOString();
+    } catch {
+      return value;
+    }
+  })
   dateOfBirth?: string;
 
   @IsString()
   @IsOptional()
+  @Transform(({ value, obj }) => {
+    const raw = obj?.checkInFrequency !== undefined ? obj.checkInFrequency : (value ?? obj?.checkInFreq);
+    if (raw === undefined || raw === null || raw === "") return undefined;
+    return String(raw).trim();
+  })
   checkInFreq?: string;
+
+  @IsString()
+  @IsOptional()
+  checkInFrequency?: string;
+
+  @IsString()
+  @IsOptional()
+  type?: string;
+
+  @IsString()
+  @IsOptional()
+  subscriptionStatus?: string;
 
   // Validação aninhada para o campo JSON
   @IsOptional()
@@ -103,14 +139,11 @@ export class CreateClientDto {
   medicalHistory?: MedicalHistoryDto;
 
   @IsOptional()
+  @Transform(({ value }) => (value === "" ? undefined : value))
   @IsUUID()
   planId?: string;
 
-  @IsString()
-  @IsOptional()
-  subscriptionStatus?: string; // 'ACTIVE' | 'OVERDUE' | 'PAUSED'
-
   @IsBoolean()
   @IsOptional()
-  notificationEnabled?: boolean;
+  notificationEnabled?: boolean = true;
 }

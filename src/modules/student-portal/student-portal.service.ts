@@ -56,7 +56,9 @@ export class StudentPortalService {
     }
 
     if (payload.action !== "WORKOUT") {
-      throw new ForbiddenException("Token não autorizado para execução de treino.");
+      throw new ForbiddenException(
+        "Token não autorizado para execução de treino.",
+      );
     }
 
     const client = await this.prisma.client.findUnique({
@@ -71,7 +73,8 @@ export class StudentPortalService {
     // Check Tenant Status (Feature 008 Guardrail)
     if (
       client.user.tenant &&
-      (client.user.tenant.status === "BLOCKED" || client.user.tenant.status === "OVERDUE")
+      (client.user.tenant.status === "BLOCKED" ||
+        client.user.tenant.status === "OVERDUE")
     ) {
       throw new ForbiddenException(
         "Plataforma temporariamente indisponível. Por favor, contate seu treinador.",
@@ -79,7 +82,7 @@ export class StudentPortalService {
     }
 
     // Check Student Status (Feature 002 Guardrail)
-    if (client.subscriptionStatus === "PAUSED") {
+    if (client.status === "PAUSED") {
       throw new ForbiddenException(
         "Seus treinos estão pausados no momento. Fale com seu treinador para retornar.",
       );

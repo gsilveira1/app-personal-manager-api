@@ -8,9 +8,16 @@ datasource db {
 
 // Enums
 enum ClientStatus {
-  Active
-  Inactive
-  Lead
+  ACTIVE
+  PAUSED
+  OVERDUE
+  LEAD
+}
+
+enum ClientModality {
+  PRESENCIAL
+  ONLINE
+  HYBRID
 }
 
 enum TenantStatus {
@@ -75,27 +82,26 @@ model User {
   workoutSheets      WorkoutSheet[]
   workoutTemplates   WorkoutTemplate[]
   exercises          Exercise[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([tenantId])
 }
 
 model Client {
-  id                  String       @id @default(uuid())
+  id                  String         @id @default(uuid())
   name                String
-  email               String       @unique
+  email               String         @unique
   phone               String
-  status              ClientStatus @default(Active)
-  modality            String?      @default("ONLINE") // ONLINE, PRESENCIAL, HYBRID
-  subscriptionStatus  String?      @default("ACTIVE") // ACTIVE, OVERDUE, PAUSED
+  status              ClientStatus   @default(ACTIVE)
+  modality            ClientModality @default(PRESENCIAL)
   currentPeriodEnd    DateTime?
-  type                String
   goal                String?
   avatar              String?
   notes               String?
   dateOfBirth         DateTime?
   checkInFreq         String?
   medicalHistory      Json?
-  notificationEnabled Boolean      @default(true)
+  notificationEnabled Boolean        @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -124,6 +130,7 @@ model Client {
   @@index([userId])
   @@index([tenantId])
   @@index([status])
+  @@index([modality])
   @@index([planId])
 }
 
@@ -505,4 +512,17 @@ model NotificationLog {
   @@index([tenantId])
   @@index([createdAt])
   @@index([status])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
 }

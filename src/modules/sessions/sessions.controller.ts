@@ -15,7 +15,11 @@ import {
 import { AuthGuard } from "@nestjs/passport";
 
 import { SessionsService } from "./sessions.service";
-import { CreateSessionDto, UpdateSessionScopeDto } from "./sessions.dto";
+import {
+  CreateSessionDto,
+  UpdateSessionDto,
+  UpdateSessionScopeDto,
+} from "./sessions.dto";
 import {
   CreateRecurringEventDto,
   UpsertSessionExceptionDto,
@@ -138,6 +142,21 @@ export class SessionsController {
   @Get(":id")
   findOne(@Request() req: RequestWithUser, @Param("id") id: string) {
     return this.sessionsService.findOne(req.user!.userId, id);
+  }
+
+  @UseGuards(AuthGuard("jwt"))
+  @Patch(":id")
+  update(
+    @Request() req: RequestWithUser,
+    @Param("id") id: string,
+    @Body() updateDto: UpdateSessionDto,
+  ) {
+    return this.sessionsService.updateWithScope(
+      req.user!.userId,
+      id,
+      updateDto,
+      "single",
+    );
   }
 
   @UseGuards(AuthGuard("jwt"))

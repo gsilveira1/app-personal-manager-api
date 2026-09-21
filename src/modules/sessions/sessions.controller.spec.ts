@@ -93,6 +93,22 @@ describe("SessionsController", () => {
     });
   });
 
+  describe("PATCH /:id (update single session)", () => {
+    it("should delegate to service.updateWithScope with single scope", async () => {
+      const updateDto = { notes: "Updated directly" };
+      service.updateWithScope!.mockResolvedValue({ id: "sess-1" } as any);
+
+      await controller.update(req as any, "sess-1", updateDto as any);
+
+      expect(service.updateWithScope).toHaveBeenCalledWith(
+        "trainer-uuid-1",
+        "sess-1",
+        updateDto,
+        "single",
+      );
+    });
+  });
+
   describe("PATCH /:id/scope", () => {
     it("should extract scope from body and pass data + scope to service", async () => {
       const updateDto = { scope: "single" as const, notes: "Updated" };

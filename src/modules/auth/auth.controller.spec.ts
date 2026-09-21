@@ -103,4 +103,41 @@ describe("AuthController", () => {
       expect(result).toEqual(user);
     });
   });
+
+  describe("POST /forgot-password", () => {
+    it("should delegate to authService.requestPasswordReset", async () => {
+      authService.requestPasswordReset = jest
+        .fn()
+        .mockResolvedValue({ message: "Sent" });
+
+      const result = await controller.forgotPassword({
+        email: "user@test.com",
+      });
+
+      expect(authService.requestPasswordReset).toHaveBeenCalledWith(
+        "user@test.com",
+      );
+      expect(result).toEqual({ message: "Sent" });
+    });
+  });
+
+  describe("POST /reset-password", () => {
+    it("should delegate to authService.resetPassword", async () => {
+      authService.resetPassword = jest
+        .fn()
+        .mockResolvedValue({ message: "Senha redefinida com sucesso." });
+
+      const result = await controller.resetPassword({
+        token: "tok-123",
+        password: "NewPassword123!",
+      });
+
+      expect(authService.resetPassword).toHaveBeenCalledWith({
+        token: "tok-123",
+        password: "NewPassword123!",
+      });
+      expect(result).toEqual({ message: "Senha redefinida com sucesso." });
+    });
+  });
 });
+

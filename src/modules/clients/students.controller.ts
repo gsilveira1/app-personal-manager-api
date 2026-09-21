@@ -20,7 +20,6 @@ import { Response } from "express";
 
 import { ClientsService } from "./clients.service";
 import { AnamnesisService } from "../anamnesis/anamnesis.service";
-import { CreateClientDto } from "./clients-create.dto";
 import { CreateStudentDto } from "./create-student.dto";
 import { UpdateClientDto } from "./clients-update.dto";
 import { ManualPaymentDto } from "./manual-payment.dto";
@@ -47,10 +46,7 @@ export class StudentsController {
   }
 
   @Get()
-  findAll(
-    @Request() req: RequestWithUser,
-    @Query() query: StudentQueryDto,
-  ) {
+  findAll(@Request() req: RequestWithUser, @Query() query: StudentQueryDto) {
     return this.clientsService.findStudents(req.user.userId, query);
   }
 

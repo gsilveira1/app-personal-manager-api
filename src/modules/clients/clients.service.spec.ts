@@ -22,8 +22,8 @@ describe("ClientsService", () => {
     name: "Maria Santos",
     email: "maria@example.com",
     phone: "53999001122",
-    status: "Active",
-    type: "In-Person",
+    status: "ACTIVE",
+    modality: "PRESENCIAL",
     userId,
     planId: null,
     createdAt: new Date(),
@@ -38,12 +38,15 @@ describe("ClientsService", () => {
         findUnique: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        count: jest.fn(),
       },
       notificationLog: {
         create: jest.fn().mockResolvedValue({ id: "notif-1" }),
       },
       user: {
-        findUnique: jest.fn().mockResolvedValue({ id: userId, tenantId: "tenant-uuid-1" }),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: userId, tenantId: "tenant-uuid-1" }),
       },
     };
 
@@ -100,6 +103,30 @@ describe("ClientsService", () => {
       expect(prisma.client.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           medicalHistory: { objective: ["Saúde"], hasHeartDisease: false },
+        }),
+      });
+    });
+
+    it("should accept and persist checkInFrequency for Online clients", async () => {
+      prisma.client.create.mockResolvedValue({
+        ...mockClient,
+        modality: "ONLINE",
+        checkInFreq: "Weekly",
+      });
+
+      await service.create(userId, {
+        name: "Online Client",
+        email: "online@example.com",
+        phone: "+55 53 99999-8888",
+        modality: "ONLINE" as any,
+        checkInFrequency: "Weekly",
+      } as any);
+
+      expect(prisma.client.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          name: "Online Client",
+          modality: "ONLINE",
+          checkInFreq: "Weekly",
         }),
       });
     });
@@ -265,13 +292,13 @@ describe("ClientsService", () => {
 
   describe("findLeads", () => {
     it("should return only Lead status clients ordered by createdAt desc", async () => {
-      const leadClient = { ...mockClient, status: "Lead" };
+      const leadClient = { ...mockClient, status: "LEAD" };
       prisma.client.findMany.mockResolvedValue([leadClient]);
 
       const result = await service.findLeads(userId);
 
       expect(prisma.client.findMany).toHaveBeenCalledWith({
-        where: { userId, status: "Lead" },
+        where: { userId, status: "LEAD" },
         orderBy: { createdAt: "desc" },
       });
       expect(result).toHaveLength(1);
@@ -288,34 +315,34 @@ describe("ClientsService", () => {
     it("should update client status to Active", async () => {
       prisma.client.findUnique.mockResolvedValue({
         ...mockClient,
-        status: "Lead",
+        status: "LEAD",
         plan: null,
         workouts: [],
       });
       prisma.client.update.mockResolvedValue({
         ...mockClient,
-        status: "Active",
+        status: "ACTIVE",
       });
 
       const result = await service.convertLead(userId, clientId);
 
       expect(prisma.client.update).toHaveBeenCalledWith({
         where: { id: clientId },
-        data: { status: "Active" },
+        data: { status: "ACTIVE" },
       });
-      expect(result.status).toBe("Active");
+      expect(result.status).toBe("ACTIVE");
     });
 
     it("should optionally assign planId when converting", async () => {
       prisma.client.findUnique.mockResolvedValue({
         ...mockClient,
-        status: "Lead",
+        status: "LEAD",
         plan: null,
         workouts: [],
       });
       prisma.client.update.mockResolvedValue({
         ...mockClient,
-        status: "Active",
+        status: "ACTIVE",
         planId: "plan-uuid",
       });
 
@@ -323,7 +350,7 @@ describe("ClientsService", () => {
 
       expect(prisma.client.update).toHaveBeenCalledWith({
         where: { id: clientId },
-        data: { status: "Active", planId: "plan-uuid" },
+        data: { status: "ACTIVE", planId: "plan-uuid" },
       });
     });
 
@@ -390,6 +417,75 @@ describe("ClientsService", () => {
       await expect(
         service.generateAvatarUploadUrl(userId, clientId, "image/png"),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe("findStudents - Sorting Scenarios", () => {
+    beforeEach(() => {
+      prisma.client.count.mockResolvedValue(2);
+      prisma.client.findMany.mockResolvedValue([
+        {
+          ...mockClient,
+          workoutSheets: [],
+        },
+      ]);
+    });
+
+    it("should sort by name ascending by default", async () => {
+      await service.findStudents(userId, {});
+
+      expect(prisma.client.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { name: "asc" },
+        }),
+      );
+    });
+
+    it.each([
+      ["name", "asc", { name: "asc" }],
+      ["name", "desc", { name: "desc" }],
+      ["email", "asc", { email: "asc" }],
+      ["email", "desc", { email: "desc" }],
+      ["status", "asc", { status: "asc" }],
+      ["status", "desc", { status: "desc" }],
+      ["modality", "asc", { modality: "asc" }],
+      ["modality", "desc", { modality: "desc" }],
+      ["createdAt", "asc", { createdAt: "asc" }],
+      ["createdAt", "desc", { createdAt: "desc" }],
+      ["dateOfBirth", "asc", { dateOfBirth: "asc" }],
+      ["dateOfBirth", "desc", { dateOfBirth: "desc" }],
+    ])("should sort by %s %s correctly", async (sortBy, sortOrder, expectedOrderBy) => {
+      await service.findStudents(userId, { sortBy, sortOrder });
+
+      expect(prisma.client.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: expectedOrderBy,
+        }),
+      );
+    });
+
+    it("should fallback to name asc when invalid sortBy is supplied", async () => {
+      await service.findStudents(userId, { sortBy: "invalidColumn", sortOrder: "desc" });
+
+      expect(prisma.client.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { name: "desc" },
+        }),
+      );
+    });
+
+    it("should return checkInFrequency in mapped items", async () => {
+      prisma.client.findMany.mockResolvedValue([
+        {
+          ...mockClient,
+          checkInFreq: "Bi-weekly",
+          workoutSheets: [],
+        },
+      ]);
+
+      const res = await service.findStudents(userId, {});
+      expect(res.items[0].checkInFrequency).toBe("Bi-weekly");
+      expect(res.items[0].checkInFreq).toBe("Bi-weekly");
     });
   });
 });

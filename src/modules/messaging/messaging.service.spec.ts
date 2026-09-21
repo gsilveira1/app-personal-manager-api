@@ -6,9 +6,9 @@ import { StudentPortalService } from "../student-portal/student-portal.service";
 
 describe("MessagingService", () => {
   let service: MessagingService;
-  let prisma: PrismaService;
-  let anamnesisService: AnamnesisService;
-  let studentPortalService: StudentPortalService;
+  let _prisma: PrismaService;
+  let _anamnesisService: AnamnesisService;
+  let _studentPortalService: StudentPortalService;
 
   const mockPrismaService = {
     client: {
@@ -20,15 +20,16 @@ describe("MessagingService", () => {
   };
 
   const mockAnamnesisService = {
-    generateMagicLinkToken: jest
-      .fn()
-      .mockResolvedValue({ token: "anam-tok", link: "/anamnesis?token=anam-tok" }),
+    generateMagicLinkToken: jest.fn().mockResolvedValue({
+      token: "anam-tok",
+      link: "/anamnesis?token=anam-tok",
+    }),
   };
 
   const mockStudentPortalService = {
     generateWorkoutMagicLink: jest
       .fn()
-      .mockResolvedValue({ token: "work-tok", url: "/p/test?token=work-tok" }),
+      .mockResolvedValue("/student-portal?token=student-tok"),
   };
 
   beforeEach(async () => {
@@ -42,9 +43,10 @@ describe("MessagingService", () => {
     }).compile();
 
     service = module.get<MessagingService>(MessagingService);
-    prisma = module.get<PrismaService>(PrismaService);
-    anamnesisService = module.get<AnamnesisService>(AnamnesisService);
-    studentPortalService = module.get<StudentPortalService>(StudentPortalService);
+    _prisma = module.get<PrismaService>(PrismaService);
+    _anamnesisService = module.get<AnamnesisService>(AnamnesisService);
+    _studentPortalService =
+      module.get<StudentPortalService>(StudentPortalService);
     jest.clearAllMocks();
   });
 
@@ -72,11 +74,20 @@ describe("MessagingService", () => {
         id: "client-1",
         userId: "user-1",
         phone: "+5511999998888",
-        user: { tenantId: "tenant-1", tenant: { whatsappStatus: "DISCONNECTED" } },
+        user: {
+          tenantId: "tenant-1",
+          tenant: { whatsappStatus: "DISCONNECTED" },
+        },
       });
-      mockPrismaService.notificationLog.create.mockResolvedValue({ id: "log-1" });
+      mockPrismaService.notificationLog.create.mockResolvedValue({
+        id: "log-1",
+      });
 
-      const result = await service.resendLink("user-1", "client-1", "ANAMNESIS");
+      const result = await service.resendLink(
+        "user-1",
+        "client-1",
+        "ANAMNESIS",
+      );
 
       expect(result.status).toBe("QUEUED");
       expect(result.channel).toBe("EMAIL");

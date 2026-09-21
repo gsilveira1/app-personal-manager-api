@@ -7,10 +7,12 @@ import { JwtStrategy } from "./jwt.strategy";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { UsersModule } from "../users/users.module"; // Importando UsersModule
 import { UsersService } from "../users/users.service";
+import { MailerModule } from "../mailer/mailer.module";
 
 @Module({
   imports: [
     UsersModule, // Necessário para injetar UsersService no AuthService
+    MailerModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

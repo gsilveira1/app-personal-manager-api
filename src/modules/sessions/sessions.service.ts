@@ -503,7 +503,67 @@ export class SessionsService {
   }
 
   async findOne(userId: string, id: string) {
-    const session = await this.prisma.session.findUnique({ where: { id } });
+    if (id.includes("_")) {
+      const separatorIndex = id.indexOf("_");
+      const recurringEventId = id.substring(0, separatorIndex);
+      const originalStartTime = id.substring(separatorIndex + 1);
+
+      const event = await this.prisma.recurringEvent.findUnique({
+        where: { id: recurringEventId },
+        include: {
+          client: { select: { name: true, avatar: true } },
+          exceptions: true,
+        },
+      });
+
+      if (!event)
+        throw new NotFoundException(
+          `Recurring event #${recurringEventId} not found`,
+        );
+      if (event.userId !== userId) throw new ForbiddenException();
+
+      const exception = event.exceptions.find(
+        (ex: any) =>
+          !ex.cancelled &&
+          Math.abs(
+            new Date(ex.originalStartTime).getTime() -
+              new Date(originalStartTime).getTime(),
+          ) < 60_000,
+      );
+
+      return {
+        id,
+        recurringEventId: event.id,
+        originalStartTime,
+        date: exception?.newStartTime
+          ? new Date(exception.newStartTime).toISOString()
+          : originalStartTime,
+        durationMinutes: exception?.durationMinutes ?? event.durationMinutes,
+        type: event.type,
+        category: event.category,
+        notes:
+          exception?.notes !== undefined && exception?.notes !== null
+            ? exception.notes
+            : event.notes,
+        completed: exception?.completed ?? false,
+        cancelled: false,
+        clientId: event.clientId,
+        client: event.client,
+        userId: event.userId,
+        linkedWorkoutId: event.linkedWorkoutId,
+        recurrenceId: event.id,
+        isVirtual: true,
+        exceptionId: exception?.id ?? null,
+      };
+    }
+
+    const session = await this.prisma.session.findUnique({
+      where: { id },
+      include: {
+        client: { select: { name: true, avatar: true } },
+        workout: { select: { id: true, name: true, letter: true } },
+      },
+    });
     if (!session) throw new NotFoundException(`Session #${id} not found`);
     if (session.userId !== userId) throw new ForbiddenException();
     return session;
@@ -522,7 +582,7 @@ export class SessionsService {
     }
 
     if (scope === "future") {
-      const originalDate = targetSession.date;
+      const originalDate = new Date(targetSession.date);
       const futureSessions = await this.prisma.session.findMany({
         where: {
           recurrenceId: targetSession.recurrenceId,
@@ -553,14 +613,103 @@ export class SessionsService {
   }
 
   async toggleComplete(userId: string, id: string) {
+    if (id.includes("_")) {
+      const separatorIndex = id.indexOf("_");
+      const recurringEventId = id.substring(0, separatorIndex);
+      const originalStartTime = id.substring(separatorIndex + 1);
+
+      const event = await this.prisma.recurringEvent.findUnique({
+        where: { id: recurringEventId },
+        include: {
+          client: { select: { name: true, avatar: true } },
+          exceptions: {
+            where: {
+              originalStartTime: new Date(originalStartTime),
+            },
+          },
+        },
+      });
+
+      if (!event)
+        throw new NotFoundException(
+          `Recurring event #${recurringEventId} not found`,
+        );
+      if (event.userId !== userId) throw new ForbiddenException();
+
+      const existingException = event.exceptions[0];
+      const currentCompleted = existingException?.completed ?? false;
+      const newCompleted = !currentCompleted;
+
+      const upsertedException = await this.prisma.sessionException.upsert({
+        where: {
+          recurringEventId_originalStartTime: {
+            recurringEventId,
+            originalStartTime: new Date(originalStartTime),
+          },
+        },
+        create: {
+          recurringEventId,
+          originalStartTime: new Date(originalStartTime),
+          completed: newCompleted,
+          cancelled: false,
+        },
+        update: {
+          completed: newCompleted,
+        },
+      });
+
+      return {
+        id,
+        recurringEventId: event.id,
+        originalStartTime,
+        date: upsertedException.newStartTime
+          ? new Date(upsertedException.newStartTime).toISOString()
+          : originalStartTime,
+        durationMinutes:
+          upsertedException.durationMinutes ?? event.durationMinutes,
+        type: event.type,
+        category: event.category,
+        notes:
+          upsertedException.notes !== null &&
+          upsertedException.notes !== undefined
+            ? upsertedException.notes
+            : event.notes,
+        completed: upsertedException.completed,
+        cancelled: upsertedException.cancelled,
+        clientId: event.clientId,
+        client: event.client,
+        userId: event.userId,
+        linkedWorkoutId: event.linkedWorkoutId,
+        recurrenceId: event.id,
+        isVirtual: true,
+        exceptionId: upsertedException.id,
+      };
+    }
+
     const session = await this.findOne(userId, id);
     return this.prisma.session.update({
       where: { id },
       data: { completed: !session.completed },
+      include: {
+        client: { select: { name: true, avatar: true } },
+        workout: { select: { id: true, name: true, letter: true } },
+      },
     });
   }
 
   async remove(userId: string, id: string) {
+    if (id.includes("_")) {
+      const separatorIndex = id.indexOf("_");
+      const recurringEventId = id.substring(0, separatorIndex);
+      const originalStartTime = id.substring(separatorIndex + 1);
+
+      return this.upsertSessionException(userId, {
+        recurringEventId,
+        originalStartTime,
+        cancelled: true,
+      });
+    }
+
     await this.findOne(userId, id);
     return this.prisma.session.delete({ where: { id } });
   }

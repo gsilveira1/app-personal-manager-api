@@ -49,7 +49,10 @@ export class AnamnesisController {
     @Request() req: RequestWithUser,
     @Param("id") clientId: string,
   ) {
-    return this.anamnesisService.generateMagicLinkToken(req.user.userId, clientId);
+    return this.anamnesisService.generateMagicLinkToken(
+      req.user.userId,
+      clientId,
+    );
   }
 
   // Protected endpoint to request reassessment

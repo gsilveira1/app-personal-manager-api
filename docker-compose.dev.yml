@@ -42,7 +42,7 @@ services:
       - "${MAILPIT_UI_PORT:-8025}:8025"
 
   evolution-api:
-    image: evoapicloud/evolution-api:v2.2.3
+    image: evoapicloud/evolution-api:latest
     container_name: personalops-evolution-api-dev
     restart: always
     environment:
@@ -60,8 +60,11 @@ services:
       - CACHE_REDIS_ENABLED=true
       - CACHE_REDIS_URI=redis://redis:6379/1
       - CACHE_REDIS_PREFIX_KEY=evolution
-      - CONFIG_SESSION_PHONE_VERSION=2.3000.1047994416-alpha
-      - WEB_VERSION=2.3000.1047994416-alpha
+      - CORS_ORIGIN=*
+      - CORS_METHODS=POST,GET,PUT,DELETE,OPTIONS
+      - CORS_CREDENTIALS=true
+      - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
+      - QRCODE_LIMIT=30
     ports:
       - "${EVOLUTION_PORT:-8080}:8080"
     volumes:
@@ -81,7 +84,7 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-    command: sh -c "npx prisma generate && npm run build && npm run start:dev"
+    command: sh -c "npx prisma generate && npx prisma migrate deploy && npm run build && npm run start:dev"
     environment:
       - NODE_ENV=development
       - PORT=9090

@@ -1,13 +1,9 @@
-import {
-  Injectable,
-  NotFoundException,
-  Logger,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../prisma/prisma.service';
-import { UpdateBrandingDto } from './dto/branding.dto';
-import { WhatsappStatus } from '@prisma/client';
-import * as QRCode from 'qrcode';
+import { Injectable, NotFoundException, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../prisma/prisma.service";
+import { UpdateBrandingDto } from "./dto/branding.dto";
+import { WhatsappStatus } from "@prisma/client";
+import * as QRCode from "qrcode";
 
 export interface WhatsappConnectResponse {
   instanceName: string;
@@ -44,7 +40,7 @@ export class TenantsService {
       data: {
         name: `${user.name} Studio`,
         slug,
-        primaryColor: '#10B981',
+        primaryColor: "#10B981",
         setupCompleted: false,
         whatsappStatus: WhatsappStatus.PENDING,
       },
@@ -65,7 +61,9 @@ export class TenantsService {
       where: { id: tenant.id },
       data: {
         ...(dto.logoUrl !== undefined && { logoUrl: dto.logoUrl }),
-        ...(dto.primaryColor !== undefined && { primaryColor: dto.primaryColor }),
+        ...(dto.primaryColor !== undefined && {
+          primaryColor: dto.primaryColor,
+        }),
       },
     });
 
@@ -74,46 +72,52 @@ export class TenantsService {
 
   async connectWhatsapp(userId: string): Promise<WhatsappConnectResponse> {
     const tenant = await this.getOrCreateTenantForUser(userId);
-    const instanceName = tenant.whatsappInstanceName || `tenant-${tenant.id.substring(0, 8)}`;
+    const instanceName =
+      tenant.whatsappInstanceName || `tenant-${tenant.id.substring(0, 8)}`;
 
-    const evolutionApiUrl = this.configService.get<string>('EVOLUTION_API_URL');
-    const evolutionApiKey = this.configService.get<string>('EVOLUTION_API_KEY');
+    const evolutionApiUrl = this.configService.get<string>("EVOLUTION_API_URL");
+    const evolutionApiKey = this.configService.get<string>("EVOLUTION_API_KEY");
 
-    let qrcodeBase64 = '';
+    let qrcodeBase64 = "";
     const status = WhatsappStatus.PENDING;
 
     if (evolutionApiUrl && evolutionApiKey) {
-      const baseUrl = evolutionApiUrl.replace(/\/$/, '');
+      const baseUrl = evolutionApiUrl.replace(/\/$/, "");
       try {
-        this.logger.log(`Ensuring instance ${instanceName} exists at ${baseUrl}`);
+        this.logger.log(
+          `Ensuring instance ${instanceName} exists at ${baseUrl}`,
+        );
         // 1. Create instance (or ignore if already exists)
         await fetch(`${baseUrl}/instance/create`, {
-          method: 'POST',
+          method: "POST",
           headers: {
             apikey: evolutionApiKey,
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             instanceName,
             qrcode: true,
-            integration: 'WHATSAPP-BAILEYS',
+            integration: "WHATSAPP-BAILEYS",
           }),
         }).catch((err) => {
           this.logger.warn(`Instance create call returned: ${err.message}`);
         });
 
         // 2. Fetch connection QR code
-        const connectRes = await fetch(`${baseUrl}/instance/connect/${instanceName}`, {
-          method: 'GET',
-          headers: {
-            apikey: evolutionApiKey,
+        const connectRes = await fetch(
+          `${baseUrl}/instance/connect/${instanceName}`,
+          {
+            method: "GET",
+            headers: {
+              apikey: evolutionApiKey,
+            },
           },
-        });
+        );
 
         if (connectRes.ok) {
           const data = (await connectRes.json()) as any;
           if (data?.base64) {
-            qrcodeBase64 = data.base64.startsWith('data:')
+            qrcodeBase64 = data.base64.startsWith("data:")
               ? data.base64
               : `data:image/png;base64,${data.base64}`;
           } else if (data?.code) {
@@ -124,7 +128,10 @@ export class TenantsService {
           }
         }
       } catch (err: any) {
-        this.logger.error(`Evolution API connection error: ${err.message}`, err.stack);
+        this.logger.error(
+          `Evolution API connection error: ${err.message}`,
+          err.stack,
+        );
       }
     }
 

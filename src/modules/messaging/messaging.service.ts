@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-} from "@nestjs/common";
+import { Injectable, ForbiddenException } from "@nestjs/common";
 import { utcToZonedTime, zonedTimeToUtc } from "date-fns-tz";
 import { PrismaService } from "../prisma/prisma.service";
 import { AnamnesisService } from "../anamnesis/anamnesis.service";
@@ -85,8 +81,10 @@ export class MessagingService {
       link = anamnesisLink;
       templateType = "WELCOME_ANAMNESIS";
     } else {
-      const { url } =
-        await this.studentPortalService.generateWorkoutMagicLink(userId, clientId);
+      const { url } = await this.studentPortalService.generateWorkoutMagicLink(
+        userId,
+        clientId,
+      );
       link = url;
       templateType = "WORKOUT_LINK";
     }

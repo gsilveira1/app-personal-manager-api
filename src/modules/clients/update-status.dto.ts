@@ -1,8 +1,18 @@
-import { IsString, IsNotEmpty, IsIn } from "class-validator";
+import { IsEnum } from "class-validator";
+import { ClientStatus } from "@prisma/client";
+import { Transform } from "class-transformer";
 
 export class UpdateStudentStatusDto {
-  @IsString()
-  @IsNotEmpty()
-  @IsIn(["ACTIVE", "PAUSED", "INACTIVE", "Active", "Inactive", "Lead"])
-  status!: string;
+  @Transform(({ value }) => {
+    if (typeof value === "string") {
+      const upper = value.toUpperCase();
+      if (upper === "ACTIVE" || upper === "ATIVO") return ClientStatus.ACTIVE;
+      if (upper === "PAUSED" || upper === "PAUSADA" || upper === "PAUSADO") return ClientStatus.PAUSED;
+      if (upper === "OVERDUE" || upper === "EM ATRASO" || upper === "ATRASADO") return ClientStatus.OVERDUE;
+      if (upper === "LEAD") return ClientStatus.LEAD;
+    }
+    return value;
+  })
+  @IsEnum(ClientStatus)
+  status!: ClientStatus;
 }

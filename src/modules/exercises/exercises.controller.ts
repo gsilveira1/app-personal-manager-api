@@ -20,10 +20,7 @@ export class ExercisesController {
   constructor(private readonly exercisesService: ExercisesService) {}
 
   @Get()
-  findAll(
-    @Request() req: RequestWithUser,
-    @Query() query: ExerciseQueryDto,
-  ) {
+  findAll(@Request() req: RequestWithUser, @Query() query: ExerciseQueryDto) {
     return this.exercisesService.findAll(req.user.userId, query);
   }
 

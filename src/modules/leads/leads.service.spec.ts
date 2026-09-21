@@ -37,7 +37,7 @@ describe("LeadsService", () => {
   afterEach(() => jest.clearAllMocks());
 
   describe("create", () => {
-    it('should create a lead with interest "presencial" mapped to "In-Person"', async () => {
+    it('should create a lead with interest "presencial" mapped to "PRESENCIAL"', async () => {
       const dto = {
         name: "Carlos",
         email: "carlos@example.com",
@@ -47,8 +47,8 @@ describe("LeadsService", () => {
       prisma.client.create.mockResolvedValue({
         id: "lead-1",
         ...dto,
-        type: "In-Person",
-        status: "Lead",
+        modality: "PRESENCIAL",
+        status: "LEAD",
       });
 
       const result = await service.create(dto);
@@ -57,14 +57,14 @@ describe("LeadsService", () => {
         data: expect.objectContaining({
           name: "Carlos",
           email: "carlos@example.com",
-          type: "In-Person",
-          status: "Lead",
+          modality: "PRESENCIAL",
+          status: "LEAD",
           userId: trainerId,
         }),
       });
     });
 
-    it('should map interest "online" to type "Online"', async () => {
+    it('should map interest "online" to modality "ONLINE"', async () => {
       const dto = {
         name: "Ana",
         email: "ana@example.com",
@@ -76,11 +76,11 @@ describe("LeadsService", () => {
       await service.create(dto);
 
       expect(prisma.client.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ type: "Online" }),
+        data: expect.objectContaining({ modality: "ONLINE" }),
       });
     });
 
-    it('should map interest "ambos" to type "Online"', async () => {
+    it('should map interest "ambos" to modality "HYBRID"', async () => {
       const dto = {
         name: "Pedro",
         email: "pedro@example.com",
@@ -92,7 +92,7 @@ describe("LeadsService", () => {
       await service.create(dto);
 
       expect(prisma.client.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ type: "Online" }),
+        data: expect.objectContaining({ modality: "HYBRID" }),
       });
     });
 

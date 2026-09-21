@@ -1,4 +1,5 @@
-import { IsString, IsEmail, IsOptional, Matches, IsIn } from "class-validator";
+import { IsString, IsEmail, IsOptional, IsEnum } from "class-validator";
+import { ClientStatus, ClientModality } from "@prisma/client";
 
 export class CreateStudentDto {
   @IsString()
@@ -8,24 +9,15 @@ export class CreateStudentDto {
   email!: string;
 
   @IsString()
-  @IsOptional()
-  @Matches(/^\+[1-9]\d{1,14}$/, {
-    message: "whatsapp must be in valid E.164 format (e.g. +5511999998888)",
-  })
-  whatsapp?: string;
+  phone!: string;
 
-  @IsString()
+  @IsEnum(ClientModality)
   @IsOptional()
-  phone?: string;
+  modality?: ClientModality = ClientModality.PRESENCIAL;
 
-  @IsString()
+  @IsEnum(ClientStatus)
   @IsOptional()
-  @IsIn(["ONLINE", "PRESENCIAL", "HYBRID"])
-  modality?: string;
-
-  @IsString()
-  @IsOptional()
-  type?: string;
+  status?: ClientStatus = ClientStatus.ACTIVE;
 
   @IsString()
   @IsOptional()

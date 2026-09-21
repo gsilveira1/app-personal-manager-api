@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { ClientStatus } from "@prisma/client";
+import { ClientStatus, ClientModality } from "@prisma/client";
 
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateLeadDto } from "./create-lead.dto";
@@ -21,11 +21,11 @@ export class LeadsService {
       );
     }
 
-    // Map the website interest field to the Client type string used in the DB
-    const typeMap: Record<CreateLeadDto["interest"], string> = {
-      presencial: "In-Person",
-      online: "Online",
-      ambos: "Online", // Default to Online when both are selected
+    // Map website interest to ClientModality
+    const modalityMap: Record<CreateLeadDto["interest"], ClientModality> = {
+      presencial: ClientModality.PRESENCIAL,
+      online: ClientModality.ONLINE,
+      ambos: ClientModality.HYBRID,
     };
 
     try {
@@ -34,9 +34,9 @@ export class LeadsService {
           name: dto.name,
           email: dto.email,
           phone: dto.phone,
-          type: typeMap[dto.interest],
+          modality: modalityMap[dto.interest] || ClientModality.PRESENCIAL,
           notes: dto.message ?? null,
-          status: ClientStatus.Lead,
+          status: ClientStatus.LEAD,
           userId: trainerId,
         },
       });

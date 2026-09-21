@@ -5,7 +5,6 @@ import {
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { GcsService } from "../gcs/gcs.service";
-import { User } from "@prisma/client";
 import { CreateUserDto } from "./users-create.dto";
 import { UpdateUserDto } from "./users-update.dto";
 import * as bcrypt from "bcrypt";

@@ -30,12 +30,18 @@ export class WorkoutSheetsService {
     // Validation Guardrail: Check BISET and TRISET block sizes
     for (const workout of dto.workouts) {
       for (const block of workout.blocks) {
-        if (block.type === "BISET" && (!block.exercises || block.exercises.length < 2)) {
+        if (
+          block.type === "BISET" &&
+          (!block.exercises || block.exercises.length < 2)
+        ) {
           throw new BadRequestException(
             `Bloco do tipo BISET no treino ${workout.letter} deve ter no mínimo 2 exercícios.`,
           );
         }
-        if (block.type === "TRISET" && (!block.exercises || block.exercises.length < 3)) {
+        if (
+          block.type === "TRISET" &&
+          (!block.exercises || block.exercises.length < 3)
+        ) {
           throw new BadRequestException(
             `Bloco do tipo TRISET no treino ${workout.letter} deve ter no mínimo 3 exercícios.`,
           );
@@ -202,5 +208,101 @@ export class WorkoutSheetsService {
       where: { userId },
       orderBy: { createdAt: "desc" },
     });
+  }
+
+  private mapTemplateToWorkoutPlan(t: any) {
+    const structure = t.structure || {};
+    let exercises: any[] = [];
+    if (Array.isArray(structure.exercises)) {
+      exercises = structure.exercises;
+    } else if (Array.isArray(structure.workouts)) {
+      exercises = structure.workouts.flatMap((w: any) =>
+        (w.blocks || []).flatMap((b: any) =>
+          (b.exercises || []).map((e: any) => ({
+            name: e.exerciseName || e.name || "Exercício",
+            sets: e.sets || 3,
+            reps: e.reps || "10-12",
+            weight: e.suggestedLoadKg ? `${e.suggestedLoadKg}kg` : undefined,
+            notes: e.executionNotes,
+          })),
+        ),
+      );
+    }
+
+    return {
+      id: t.id,
+      title: t.name,
+      description: t.description || "",
+      exercises,
+      tags: structure.tags || [],
+      createdAt: t.createdAt
+        ? typeof t.createdAt === "string"
+          ? t.createdAt
+          : t.createdAt.toISOString()
+        : new Date().toISOString(),
+    };
+  }
+
+  async findAllWorkouts(userId: string) {
+    const templates = await this.prisma.workoutTemplate.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    });
+    return templates.map((t) => this.mapTemplateToWorkoutPlan(t));
+  }
+
+  async findOneWorkout(userId: string, id: string) {
+    const template = await this.prisma.workoutTemplate.findUnique({
+      where: { id },
+    });
+    if (!template || template.userId !== userId) {
+      throw new NotFoundException(`Workout #${id} não encontrado`);
+    }
+    return this.mapTemplateToWorkoutPlan(template);
+  }
+
+  async createWorkout(userId: string, data: any) {
+    const template = await this.prisma.workoutTemplate.create({
+      data: {
+        name: data.title || data.name || "Novo Treino",
+        description: data.description || "",
+        structure: {
+          exercises: data.exercises || [],
+          tags: data.tags || [],
+        },
+        userId,
+      },
+    });
+    return this.mapTemplateToWorkoutPlan(template);
+  }
+
+  async updateWorkout(userId: string, id: string, data: any) {
+    await this.findOneWorkout(userId, id);
+    const existing = await this.prisma.workoutTemplate.findUnique({
+      where: { id },
+    });
+    const currentStructure: any = existing?.structure || {};
+    const newStructure = {
+      ...currentStructure,
+      ...(data.exercises !== undefined ? { exercises: data.exercises } : {}),
+      ...(data.tags !== undefined ? { tags: data.tags } : {}),
+    };
+
+    const updated = await this.prisma.workoutTemplate.update({
+      where: { id },
+      data: {
+        ...(data.title ? { name: data.title } : {}),
+        ...(data.name ? { name: data.name } : {}),
+        ...(data.description !== undefined ? { description: data.description } : {}),
+        structure: newStructure,
+      },
+    });
+    return this.mapTemplateToWorkoutPlan(updated);
+  }
+
+  async deleteWorkout(userId: string, id: string) {
+    await this.findOneWorkout(userId, id);
+    await this.prisma.workoutTemplate.delete({ where: { id } });
+    return { message: "Workout excluído com sucesso" };
   }
 }
