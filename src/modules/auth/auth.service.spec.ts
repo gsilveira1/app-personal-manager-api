@@ -89,6 +89,19 @@ describe("AuthService", () => {
       expect(result.email).toBe("joao@example.com");
     });
 
+    it("should normalize casing and trim whitespace in email before querying user", async () => {
+      usersService.findByEmailForAuth!.mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+      const result = await service.validateUser("  JOAO@EXAMPLE.COM  ", "senha123");
+
+      expect(usersService.findByEmailForAuth).toHaveBeenCalledWith(
+        "joao@example.com",
+      );
+      expect(result).toBeDefined();
+      expect(result.id).toBe("user-uuid-1");
+    });
+
     it("should return null when email does not exist", async () => {
       usersService.findByEmailForAuth!.mockResolvedValue(null);
 

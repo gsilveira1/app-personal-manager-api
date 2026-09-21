@@ -17,8 +17,9 @@ export class UsersService {
   ) {}
 
   async create(data: CreateUserDto) {
+    const normalizedEmail = data.email.toLowerCase().trim();
     const existingUser = await this.prisma.user.findUnique({
-      where: { email: data.email },
+      where: { email: normalizedEmail },
     });
 
     if (existingUser) {
@@ -43,6 +44,7 @@ export class UsersService {
     const { password, ...result } = await this.prisma.user.create({
       data: {
         ...data,
+        email: normalizedEmail,
         role: userRole,
         password: hashedPassword,
         tenantId: tenant.id,
@@ -76,8 +78,10 @@ export class UsersService {
 
   // Método específico para o AuthService (precisa da senha para comparar)
   async findByEmailForAuth(email: string) {
+    if (!email) return null;
+    const normalizedEmail = email.toLowerCase().trim();
     return this.prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
       include: { tenant: true },
     });
   }
@@ -86,6 +90,10 @@ export class UsersService {
     await this.findOne(id); // Garante existência
 
     const updateData: any = { ...data };
+
+    if (data.email) {
+      updateData.email = data.email.toLowerCase().trim();
+    }
 
     if (data.password) {
       updateData.password = await bcrypt.hash(data.password, 10);

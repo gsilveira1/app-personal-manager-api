@@ -83,6 +83,33 @@ describe("UsersService", () => {
       expect(result.name).toBe("João Silva");
     });
 
+    it("should normalize email to lowercase and trimmed when checking uniqueness and saving", async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      (bcrypt.hash as jest.Mock).mockResolvedValue("hashed-pw");
+      prisma.user.create.mockResolvedValue({
+        ...mockUser,
+        email: "joao@example.com",
+        password: "hashed-pw",
+      });
+
+      await service.create({
+        name: "João Silva",
+        email: "  JOAO@EXAMPLE.COM  ",
+        password: "senha123",
+      });
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: "joao@example.com" },
+      });
+      expect(prisma.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            email: "joao@example.com",
+          }),
+        }),
+      );
+    });
+
     it("should throw ConflictException when email already exists", async () => {
       prisma.user.findUnique.mockResolvedValue(mockUser);
 
@@ -142,6 +169,17 @@ describe("UsersService", () => {
 
       expect(result).toHaveProperty("password");
       expect(result!.password).toBe("$2b$10$hashedpassword");
+    });
+
+    it("should normalize email to lowercase and trimmed when querying for auth", async () => {
+      prisma.user.findUnique.mockResolvedValue(mockUser);
+
+      await service.findByEmailForAuth("  JOAO@EXAMPLE.COM  ");
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: "joao@example.com" },
+        include: { tenant: true },
+      });
     });
 
     it("should return null for non-existent email", async () => {
