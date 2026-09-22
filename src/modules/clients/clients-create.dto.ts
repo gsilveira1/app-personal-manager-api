@@ -62,12 +62,23 @@ export class CreateClientDto {
   @IsEnum(ClientStatus)
   @IsOptional()
   @Transform(({ value, obj }) => {
-    const raw = obj?.subscriptionStatus !== undefined ? obj.subscriptionStatus : (value ?? obj?.status);
-    if (raw === undefined || raw === null || raw === "") return ClientStatus.ACTIVE;
+    const raw =
+      obj?.subscriptionStatus !== undefined
+        ? obj.subscriptionStatus
+        : (value ?? obj?.status);
+    if (raw === undefined || raw === null || raw === "")
+      return ClientStatus.ACTIVE;
     const s = String(raw).toUpperCase().trim();
     if (s === "ACTIVE" || s === "ATIVO") return ClientStatus.ACTIVE;
-    if (s === "PAUSED" || s === "PAUSADA" || s === "PAUSADO") return ClientStatus.PAUSED;
-    if (s === "OVERDUE" || s === "EM ATRASO" || s === "EM_ATRASO" || s === "INACTIVE") return ClientStatus.OVERDUE;
+    if (s === "PAUSED" || s === "PAUSADA" || s === "PAUSADO")
+      return ClientStatus.PAUSED;
+    if (
+      s === "OVERDUE" ||
+      s === "EM ATRASO" ||
+      s === "EM_ATRASO" ||
+      s === "INACTIVE"
+    )
+      return ClientStatus.OVERDUE;
     if (s === "LEAD") return ClientStatus.LEAD;
     return raw;
   })
@@ -77,11 +88,14 @@ export class CreateClientDto {
   @IsOptional()
   @Transform(({ value, obj }) => {
     const raw = obj?.type !== undefined ? obj.type : (value ?? obj?.modality);
-    if (raw === undefined || raw === null || raw === "") return ClientModality.PRESENCIAL;
+    if (raw === undefined || raw === null || raw === "")
+      return ClientModality.PRESENCIAL;
     const m = String(raw).toUpperCase().trim();
-    if (m === "PRESENCIAL" || m === "IN-PERSON" || m === "IN_PERSON") return ClientModality.PRESENCIAL;
+    if (m === "PRESENCIAL" || m === "IN-PERSON" || m === "IN_PERSON")
+      return ClientModality.PRESENCIAL;
     if (m === "ONLINE") return ClientModality.ONLINE;
-    if (m === "HYBRID" || m === "HÍBRIDO" || m === "HIBRIDO") return ClientModality.HYBRID;
+    if (m === "HYBRID" || m === "HÍBRIDO" || m === "HIBRIDO")
+      return ClientModality.HYBRID;
     return raw;
   })
   modality?: ClientModality = ClientModality.PRESENCIAL;
@@ -113,7 +127,10 @@ export class CreateClientDto {
   @IsString()
   @IsOptional()
   @Transform(({ value, obj }) => {
-    const raw = obj?.checkInFrequency !== undefined ? obj.checkInFrequency : (value ?? obj?.checkInFreq);
+    const raw =
+      obj?.checkInFrequency !== undefined
+        ? obj.checkInFrequency
+        : (value ?? obj?.checkInFreq);
     if (raw === undefined || raw === null || raw === "") return undefined;
     return String(raw).trim();
   })

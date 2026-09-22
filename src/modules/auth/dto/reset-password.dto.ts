@@ -10,4 +10,3 @@ export class ResetPasswordDto {
   @MinLength(8, { message: "A nova senha deve conter no mínimo 8 caracteres." })
   password!: string;
 }
-

@@ -454,18 +454,24 @@ describe("ClientsService", () => {
       ["createdAt", "desc", { createdAt: "desc" }],
       ["dateOfBirth", "asc", { dateOfBirth: "asc" }],
       ["dateOfBirth", "desc", { dateOfBirth: "desc" }],
-    ])("should sort by %s %s correctly", async (sortBy, sortOrder, expectedOrderBy) => {
-      await service.findStudents(userId, { sortBy, sortOrder });
+    ])(
+      "should sort by %s %s correctly",
+      async (sortBy, sortOrder, expectedOrderBy) => {
+        await service.findStudents(userId, { sortBy, sortOrder });
 
-      expect(prisma.client.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          orderBy: expectedOrderBy,
-        }),
-      );
-    });
+        expect(prisma.client.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: expectedOrderBy,
+          }),
+        );
+      },
+    );
 
     it("should fallback to name asc when invalid sortBy is supplied", async () => {
-      await service.findStudents(userId, { sortBy: "invalidColumn", sortOrder: "desc" });
+      await service.findStudents(userId, {
+        sortBy: "invalidColumn",
+        sortOrder: "desc",
+      });
 
       expect(prisma.client.findMany).toHaveBeenCalledWith(
         expect.objectContaining({

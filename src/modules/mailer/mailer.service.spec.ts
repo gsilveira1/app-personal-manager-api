@@ -9,7 +9,9 @@ describe("MailerService", () => {
   let sendMailMock: jest.Mock;
 
   beforeEach(async () => {
-    sendMailMock = jest.fn().mockResolvedValue({ messageId: "mock-message-id-123" });
+    sendMailMock = jest
+      .fn()
+      .mockResolvedValue({ messageId: "mock-message-id-123" });
     (nodemailer.createTransport as jest.Mock).mockReturnValue({
       sendMail: sendMailMock,
     });

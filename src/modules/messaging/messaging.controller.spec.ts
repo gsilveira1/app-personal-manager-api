@@ -13,6 +13,12 @@ describe("MessagingControllers", () => {
     getTenantQueue: jest.fn().mockResolvedValue({ items: [], total: 0 }),
     retryNotification: jest.fn().mockResolvedValue({ message: "Reenviado" }),
     cancelNotification: jest.fn().mockResolvedValue({ message: "Cancelado" }),
+    processPendingQueue: jest.fn().mockResolvedValue({
+      processedCount: 2,
+      successCount: 2,
+      failedCount: 0,
+      delayedCount: 0,
+    }),
     resendLink: jest.fn().mockResolvedValue({ status: "QUEUED" }),
     getClientMessageHistory: jest.fn().mockResolvedValue([]),
   };
@@ -45,6 +51,21 @@ describe("MessagingControllers", () => {
       query,
     );
     expect(result).toEqual({ items: [], total: 0 });
+  });
+
+  it("should process pending message queue", async () => {
+    const req = { user: { userId: "user-1" } } as any;
+    const result = await messagingController.processQueue(req);
+
+    expect(mockMessagingService.processPendingQueue).toHaveBeenCalledWith(
+      "user-1",
+    );
+    expect(result).toEqual({
+      processedCount: 2,
+      successCount: 2,
+      failedCount: 0,
+      delayedCount: 0,
+    });
   });
 
   it("should retry message delivery", async () => {

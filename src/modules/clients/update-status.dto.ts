@@ -7,8 +7,10 @@ export class UpdateStudentStatusDto {
     if (typeof value === "string") {
       const upper = value.toUpperCase();
       if (upper === "ACTIVE" || upper === "ATIVO") return ClientStatus.ACTIVE;
-      if (upper === "PAUSED" || upper === "PAUSADA" || upper === "PAUSADO") return ClientStatus.PAUSED;
-      if (upper === "OVERDUE" || upper === "EM ATRASO" || upper === "ATRASADO") return ClientStatus.OVERDUE;
+      if (upper === "PAUSED" || upper === "PAUSADA" || upper === "PAUSADO")
+        return ClientStatus.PAUSED;
+      if (upper === "OVERDUE" || upper === "EM ATRASO" || upper === "ATRASADO")
+        return ClientStatus.OVERDUE;
       if (upper === "LEAD") return ClientStatus.LEAD;
     }
     return value;

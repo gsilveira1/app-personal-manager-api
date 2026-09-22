@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException, Logger } from "@nestjs/common";
+import { Injectable, NotFoundException, BadRequestException, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../prisma/prisma.service";
+import { WhatsAppService } from "../messaging/whatsapp.service";
 import { UpdateBrandingDto } from "./dto/branding.dto";
+import { WhatsAppTestMessageDto } from "./dto/whatsapp-test-message.dto";
 import { WhatsappStatus } from "@prisma/client";
 import * as QRCode from "qrcode";
 
@@ -18,6 +20,7 @@ export class TenantsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly whatsappService: WhatsAppService,
   ) {}
 
   async getOrCreateTenantForUser(userId: string) {
@@ -163,9 +166,83 @@ export class TenantsService {
 
   async getWhatsappStatus(userId: string) {
     const tenant = await this.getOrCreateTenantForUser(userId);
+    let currentStatus = tenant.whatsappStatus;
+
+    if (tenant.whatsappInstanceName) {
+      try {
+        const check = await this.whatsappService.checkInstanceStatus(
+          tenant.whatsappInstanceName,
+        );
+        if (check.status === "CONNECTED" && currentStatus !== WhatsappStatus.CONNECTED) {
+          currentStatus = WhatsappStatus.CONNECTED;
+          await this.prisma.tenant.update({
+            where: { id: tenant.id },
+            data: { whatsappStatus: WhatsappStatus.CONNECTED },
+          });
+        } else if (
+          check.status === "DISCONNECTED" &&
+          currentStatus === WhatsappStatus.CONNECTED
+        ) {
+          currentStatus = WhatsappStatus.DISCONNECTED;
+          await this.prisma.tenant.update({
+            where: { id: tenant.id },
+            data: { whatsappStatus: WhatsappStatus.DISCONNECTED },
+          });
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to check live WhatsApp status: ${err.message}`);
+      }
+    }
+
     return {
       instanceName: tenant.whatsappInstanceName,
-      status: tenant.whatsappStatus,
+      status: currentStatus,
+    };
+  }
+
+  async disconnectWhatsapp(userId: string) {
+    const tenant = await this.getOrCreateTenantForUser(userId);
+
+    if (tenant.whatsappInstanceName) {
+      await this.whatsappService.disconnectInstance(tenant.whatsappInstanceName);
+    }
+
+    const updated = await this.prisma.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        whatsappStatus: WhatsappStatus.DISCONNECTED,
+      },
+    });
+
+    return {
+      success: true,
+      status: updated.whatsappStatus,
+      instanceName: updated.whatsappInstanceName,
+    };
+  }
+
+  async sendTestWhatsappMessage(userId: string, dto: WhatsAppTestMessageDto) {
+    const tenant = await this.getOrCreateTenantForUser(userId);
+
+    if (!tenant.whatsappInstanceName) {
+      throw new BadRequestException("Instância do WhatsApp não configurada.");
+    }
+
+    const result = await this.whatsappService.sendTextMessage(
+      tenant.whatsappInstanceName,
+      dto.phone,
+      dto.message,
+    );
+
+    if (!result.success) {
+      throw new BadRequestException(
+        result.error || "Falha ao enviar mensagem de teste via WhatsApp.",
+      );
+    }
+
+    return {
+      success: true,
+      messageId: result.messageId,
     };
   }
 

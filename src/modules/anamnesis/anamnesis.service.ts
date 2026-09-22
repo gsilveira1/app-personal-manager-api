@@ -46,7 +46,13 @@ export class AnamnesisService {
       },
     });
 
-    return { token, link: `/anamnesis?token=${token}` };
+    const baseUrl = (
+      process.env.FRONTEND_URL ||
+      process.env.APP_CLIENT_URL ||
+      "http://localhost:5173"
+    ).replace(/\/$/, "");
+
+    return { token, link: `${baseUrl}/#/anamnesis?token=${token}` };
   }
 
   async getFormMetadata(token: string) {

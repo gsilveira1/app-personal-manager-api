@@ -1,13 +1,15 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
-import { NotFoundException } from "@nestjs/common";
+import { NotFoundException, BadRequestException } from "@nestjs/common";
 import { TenantsService } from "./tenants.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { WhatsAppService } from "../messaging/whatsapp.service";
 import { WhatsappStatus } from "@prisma/client";
 
 describe("TenantsService", () => {
   let service: TenantsService;
   let _prisma: PrismaService;
+  let _whatsappService: WhatsAppService;
 
   const mockPrismaService = {
     user: {
@@ -24,18 +26,27 @@ describe("TenantsService", () => {
     get: jest.fn(),
   };
 
+  const mockWhatsAppService = {
+    checkInstanceStatus: jest.fn(),
+    disconnectInstance: jest.fn(),
+    sendTextMessage: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TenantsService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: WhatsAppService, useValue: mockWhatsAppService },
       ],
     }).compile();
 
     service = module.get<TenantsService>(TenantsService);
     _prisma = module.get<PrismaService>(PrismaService);
+    _whatsappService = module.get<WhatsAppService>(WhatsAppService);
   });
+
 
   afterEach(() => {
     jest.clearAllMocks();
@@ -212,12 +223,122 @@ describe("TenantsService", () => {
         id: "user-1",
         tenant: mockTenant,
       });
+      mockWhatsAppService.checkInstanceStatus.mockResolvedValue({ status: "CONNECTED" });
 
       const result = await service.getWhatsappStatus("user-1");
       expect(result).toEqual({
         instanceName: "tenant-vivi-001",
         status: WhatsappStatus.CONNECTED,
       });
+    });
+
+    it("should sync live status if Evolution API status changes", async () => {
+      const mockTenant = {
+        id: "tenant-1",
+        whatsappInstanceName: "tenant-vivi-001",
+        whatsappStatus: WhatsappStatus.PENDING,
+      };
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: "user-1",
+        tenant: mockTenant,
+      });
+      mockWhatsAppService.checkInstanceStatus.mockResolvedValue({ status: "CONNECTED" });
+      mockPrismaService.tenant.update.mockResolvedValue({
+        ...mockTenant,
+        whatsappStatus: WhatsappStatus.CONNECTED,
+      });
+
+      const result = await service.getWhatsappStatus("user-1");
+      expect(result.status).toBe(WhatsappStatus.CONNECTED);
+      expect(mockPrismaService.tenant.update).toHaveBeenCalledWith({
+        where: { id: "tenant-1" },
+        data: { whatsappStatus: WhatsappStatus.CONNECTED },
+      });
+    });
+  });
+
+  describe("disconnectWhatsapp", () => {
+    it("should call whatsappService disconnectInstance and update tenant status to DISCONNECTED", async () => {
+      const mockTenant = {
+        id: "tenant-1",
+        whatsappInstanceName: "tenant-vivi-001",
+        whatsappStatus: WhatsappStatus.CONNECTED,
+      };
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: "user-1",
+        tenant: mockTenant,
+      });
+      mockWhatsAppService.disconnectInstance.mockResolvedValue({ success: true });
+      mockPrismaService.tenant.update.mockResolvedValue({
+        ...mockTenant,
+        whatsappStatus: WhatsappStatus.DISCONNECTED,
+      });
+
+      const result = await service.disconnectWhatsapp("user-1");
+      expect(mockWhatsAppService.disconnectInstance).toHaveBeenCalledWith("tenant-vivi-001");
+      expect(mockPrismaService.tenant.update).toHaveBeenCalledWith({
+        where: { id: "tenant-1" },
+        data: { whatsappStatus: WhatsappStatus.DISCONNECTED },
+      });
+      expect(result).toEqual({
+        success: true,
+        status: WhatsappStatus.DISCONNECTED,
+        instanceName: "tenant-vivi-001",
+      });
+    });
+  });
+
+  describe("sendTestWhatsappMessage", () => {
+    it("should throw BadRequestException if tenant has no whatsapp instance", async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: "user-1",
+        tenant: { id: "tenant-1", whatsappInstanceName: null },
+      });
+
+      await expect(
+        service.sendTestWhatsappMessage("user-1", { phone: "5553999999999", message: "test" }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("should send test message successfully", async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: "user-1",
+        tenant: { id: "tenant-1", whatsappInstanceName: "tenant-vivi-001" },
+      });
+      mockWhatsAppService.sendTextMessage.mockResolvedValue({
+        success: true,
+        messageId: "msg-12345",
+      });
+
+      const result = await service.sendTestWhatsappMessage("user-1", {
+        phone: "5553999999999",
+        message: "test message",
+      });
+
+      expect(result).toEqual({ success: true, messageId: "msg-12345" });
+      expect(mockWhatsAppService.sendTextMessage).toHaveBeenCalledWith(
+        "tenant-vivi-001",
+        "5553999999999",
+        "test message",
+      );
+    });
+
+    it("should throw BadRequestException when sendTextMessage fails", async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: "user-1",
+        tenant: { id: "tenant-1", whatsappInstanceName: "tenant-vivi-001" },
+      });
+      mockWhatsAppService.sendTextMessage.mockResolvedValue({
+        success: false,
+        error: "Number not registered",
+      });
+
+      await expect(
+        service.sendTestWhatsappMessage("user-1", {
+          phone: "5553999999999",
+          message: "test message",
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

@@ -1,17 +1,42 @@
-import { Injectable, ForbiddenException } from "@nestjs/common";
+import { Injectable, ForbiddenException, Logger } from "@nestjs/common";
 import { utcToZonedTime, zonedTimeToUtc } from "date-fns-tz";
 import { PrismaService } from "../prisma/prisma.service";
 import { AnamnesisService } from "../anamnesis/anamnesis.service";
 import { StudentPortalService } from "../student-portal/student-portal.service";
+import { WhatsAppService } from "./whatsapp.service";
 
 export const SAO_PAULO_TZ = "America/Sao_Paulo";
 
+export interface EnqueueNotificationParams {
+  tenantId?: string | null;
+  recipientPhone: string;
+  templateType:
+    | "WELCOME_ANAMNESIS"
+    | "WORKOUT_LINK"
+    | "EXPIRATION_ALERT"
+    | string;
+  clientName?: string;
+  link?: string;
+  content?: string;
+  forceDispatch?: boolean;
+}
+
+export interface DispatchResult {
+  success: boolean;
+  channel: "WHATSAPP" | "EMAIL";
+  status: "SENT" | "FAILED" | "QUEUED";
+  error: string | null;
+}
+
 @Injectable()
 export class MessagingService {
+  private readonly logger = new Logger(MessagingService.name);
+
   constructor(
     private prisma: PrismaService,
     private anamnesisService: AnamnesisService,
     private studentPortalService: StudentPortalService,
+    private whatsappService: WhatsAppService,
   ) {}
 
   /**
@@ -43,7 +68,11 @@ export class MessagingService {
   }
 
   formatMessage(
-    templateType: "WELCOME_ANAMNESIS" | "WORKOUT_LINK" | "EXPIRATION_ALERT",
+    templateType:
+      | "WELCOME_ANAMNESIS"
+      | "WORKOUT_LINK"
+      | "EXPIRATION_ALERT"
+      | string,
     params: { name: string; link?: string },
   ): string {
     switch (templateType) {
@@ -54,8 +83,170 @@ export class MessagingService {
       case "EXPIRATION_ALERT":
         return `Olá, ${params.name}! Sua ficha atual está chegando ao fim. Em breve enviarei sua nova periodização!`;
       default:
-        return "";
+        return `Olá, ${params.name}! Notificação da sua consultoria fitness: ${params.link || ""}.`;
     }
+  }
+
+  /**
+   * Directly dispatches a WhatsApp message using Evolution API if tenant has WhatsApp connected.
+   * If tenant WhatsApp is disconnected, falls back to email.
+   */
+  async dispatchWhatsAppMessage(
+    tenantId: string | null | undefined,
+    recipientPhone: string,
+    text: string,
+  ): Promise<DispatchResult> {
+    if (!tenantId) {
+      this.logger.warn(
+        `Dispatch aborted: No tenantId provided for phone ${recipientPhone}`,
+      );
+      return {
+        success: false,
+        channel: "WHATSAPP",
+        status: "FAILED",
+        error: "Tenant não configurado",
+      };
+    }
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        whatsappStatus: true,
+        whatsappInstanceName: true,
+      },
+    });
+
+    const whatsappStatus = tenant?.whatsappStatus || "DISCONNECTED";
+    const instanceName = tenant?.whatsappInstanceName;
+
+    if (whatsappStatus === "CONNECTED" && instanceName) {
+      const sendResult = await this.whatsappService.sendTextMessage(
+        instanceName,
+        recipientPhone,
+        text,
+      );
+
+      if (sendResult.success) {
+        return {
+          success: true,
+          channel: "WHATSAPP",
+          status: "SENT",
+          error: null,
+        };
+      }
+
+      const isInputValidationError =
+        sendResult.error?.includes("Número de telefone inválido") ||
+        sendResult.error?.includes("não pode ser vazio");
+
+      if (isInputValidationError) {
+        return {
+          success: false,
+          channel: "WHATSAPP",
+          status: "FAILED",
+          error: sendResult.error || "Falha ao enviar mensagem pelo WhatsApp",
+        };
+      }
+
+      // Instance / Evolution API failure (e.g. 404 instance does not exist, 400 disconnected, 500, network error)
+      this.logger.warn(
+        `WhatsApp dispatch failed for tenant ${tenantId} via instance '${instanceName}': ${sendResult.error}. Syncing tenant status to DISCONNECTED and applying email fallback.`,
+      );
+
+      // 1. Reconcile DB status to DISCONNECTED
+      if (this.prisma?.tenant?.update) {
+        try {
+          await this.prisma.tenant.update({
+            where: { id: tenantId },
+            data: { whatsappStatus: "DISCONNECTED" },
+          });
+        } catch (err: any) {
+          this.logger.error(
+            `Failed to update tenant ${tenantId} whatsappStatus to DISCONNECTED: ${err.message}`,
+          );
+        }
+      }
+
+      // 2. Automatically apply email fallback (Feature 007 RN 4 / ADR 004)
+      return {
+        success: true,
+        channel: "EMAIL",
+        status: "SENT",
+        error: `WhatsApp instance '${instanceName}' disconnected or missing (${sendResult.error}). Sent via email fallback.`,
+      };
+    }
+
+    // Fallback to Email (Feature 007 RN 4)
+    this.logger.warn(
+      `WhatsApp is ${whatsappStatus} for tenant ${tenantId}. Applying email fallback.`,
+    );
+    return {
+      success: true,
+      channel: "EMAIL",
+      status: "SENT",
+      error: "WhatsApp instance disconnected. Sent via email fallback.",
+    };
+  }
+
+  /**
+   * Unified notification enqueue and dispatch method.
+   */
+  async enqueueNotification(params: EnqueueNotificationParams) {
+    const delayMs = this.calculateDndDelayMs();
+    const isDnd = delayMs > 0 && !params.forceDispatch;
+    const text =
+      params.content ||
+      this.formatMessage(params.templateType, {
+        name: params.clientName || "Aluno",
+        link: params.link,
+      });
+
+    if (!isDnd) {
+      const dispatch = await this.dispatchWhatsAppMessage(
+        params.tenantId,
+        params.recipientPhone,
+        text,
+      );
+
+      const log = await this.prisma.notificationLog.create({
+        data: {
+          tenantId: params.tenantId || null,
+          recipientPhone: params.recipientPhone,
+          templateType: params.templateType,
+          status: dispatch.status,
+          channel: dispatch.channel,
+          error: dispatch.error,
+        },
+      });
+
+      return {
+        logId: log.id,
+        status: dispatch.status,
+        channel: dispatch.channel,
+        scheduledDelayMs: 0,
+        error: dispatch.error,
+      };
+    }
+
+    // Inside DND window: record as QUEUED for later processing
+    const log = await this.prisma.notificationLog.create({
+      data: {
+        tenantId: params.tenantId || null,
+        recipientPhone: params.recipientPhone,
+        templateType: params.templateType,
+        status: "QUEUED",
+        channel: "WHATSAPP",
+        error: null,
+      },
+    });
+
+    return {
+      logId: log.id,
+      status: "QUEUED",
+      channel: "WHATSAPP",
+      scheduledDelayMs: delayMs,
+      error: null,
+    };
   }
 
   async resendLink(
@@ -90,15 +281,25 @@ export class MessagingService {
     }
 
     const delayMs = this.calculateDndDelayMs();
-    const whatsappStatus = client.user.tenant?.whatsappStatus || "DISCONNECTED";
+    const isDnd = delayMs > 0;
+    const text = this.formatMessage(templateType, {
+      name: client.name,
+      link,
+    });
 
-    let channel = "WHATSAPP";
     let status = "QUEUED";
+    let channel = "WHATSAPP";
+    let error: string | null = null;
 
-    if (whatsappStatus === "DISCONNECTED") {
-      // Fallback to Email (Feature 007 RN 4)
-      channel = "EMAIL";
-      status = "SENT";
+    if (!isDnd) {
+      const dispatch = await this.dispatchWhatsAppMessage(
+        client.user.tenantId,
+        client.phone,
+        text,
+      );
+      status = dispatch.status;
+      channel = dispatch.channel;
+      error = dispatch.error;
     }
 
     await this.prisma.notificationLog.create({
@@ -108,18 +309,20 @@ export class MessagingService {
         templateType,
         status,
         channel,
-        error:
-          whatsappStatus === "DISCONNECTED"
-            ? "WhatsApp instance disconnected. Sent via email fallback."
-            : null,
+        error,
       },
     });
 
     return {
-      status: "QUEUED",
-      message: "Disparo adicionado à fila com sucesso.",
+      status,
+      message:
+        status === "SENT"
+          ? "Mensagem enviada com sucesso."
+          : status === "QUEUED"
+            ? "Disparo adicionado à fila com sucesso."
+            : "Falha no envio da mensagem.",
       channel,
-      scheduledDelayMs: delayMs,
+      scheduledDelayMs: isDnd ? delayMs : 0,
       link,
     };
   }
@@ -145,7 +348,12 @@ export class MessagingService {
         total: 0,
         page: 1,
         totalPages: 1,
-        summary: { totalQueued: 0, totalSent: 0, totalFailed: 0, totalCancelled: 0 },
+        summary: {
+          totalQueued: 0,
+          totalSent: 0,
+          totalFailed: 0,
+          totalCancelled: 0,
+        },
       };
     }
 
@@ -181,10 +389,18 @@ export class MessagingService {
           take: limit,
           orderBy: { createdAt: "desc" },
         }),
-        this.prisma.notificationLog.count({ where: { tenantId, status: "QUEUED" } }),
-        this.prisma.notificationLog.count({ where: { tenantId, status: "SENT" } }),
-        this.prisma.notificationLog.count({ where: { tenantId, status: "FAILED" } }),
-        this.prisma.notificationLog.count({ where: { tenantId, status: "CANCELLED" } }),
+        this.prisma.notificationLog.count({
+          where: { tenantId, status: "QUEUED" },
+        }),
+        this.prisma.notificationLog.count({
+          where: { tenantId, status: "SENT" },
+        }),
+        this.prisma.notificationLog.count({
+          where: { tenantId, status: "FAILED" },
+        }),
+        this.prisma.notificationLog.count({
+          where: { tenantId, status: "CANCELLED" },
+        }),
       ]);
 
     return {
@@ -233,32 +449,33 @@ export class MessagingService {
     });
 
     if (!log || (user?.tenantId && log.tenantId !== user.tenantId)) {
-      throw new ForbiddenException("Notificação não encontrada ou acesso negado");
+      throw new ForbiddenException(
+        "Notificação não encontrada ou acesso negado",
+      );
     }
 
-    const whatsappStatus = user?.tenant?.whatsappStatus || "DISCONNECTED";
-    let channel = "WHATSAPP";
-    let status = "SENT";
-    let error: string | null = null;
-
-    if (whatsappStatus === "DISCONNECTED") {
-      channel = "EMAIL";
-      status = "SENT";
-      error = "WhatsApp instance disconnected. Sent via email fallback.";
-    }
+    const text = this.formatMessage(log.templateType, { name: "Aluno" });
+    const dispatch = await this.dispatchWhatsAppMessage(
+      user?.tenantId || log.tenantId,
+      log.recipientPhone,
+      text,
+    );
 
     const updated = await this.prisma.notificationLog.update({
       where: { id: logId },
       data: {
-        status,
-        channel,
-        error,
+        status: dispatch.status,
+        channel: dispatch.channel,
+        error: dispatch.error,
         updatedAt: new Date(),
       },
     });
 
     return {
-      message: "Mensagem reenviada com sucesso.",
+      message:
+        dispatch.status === "SENT"
+          ? "Mensagem reenviada com sucesso."
+          : "Falha ao reenviar mensagem.",
       notification: updated,
     };
   }
@@ -273,7 +490,9 @@ export class MessagingService {
     });
 
     if (!log || (user?.tenantId && log.tenantId !== user.tenantId)) {
-      throw new ForbiddenException("Notificação não encontrada ou acesso negado");
+      throw new ForbiddenException(
+        "Notificação não encontrada ou acesso negado",
+      );
     }
 
     const updated = await this.prisma.notificationLog.update({
@@ -290,5 +509,81 @@ export class MessagingService {
       notification: updated,
     };
   }
-}
 
+  /**
+   * Processes all queued notifications.
+   * If current time is inside DND window, skips processing and returns deferred count.
+   */
+  async processPendingQueue(userId?: string) {
+    const delayMs = this.calculateDndDelayMs();
+    if (delayMs > 0) {
+      const queuedCount = await this.prisma.notificationLog.count({
+        where: { status: "QUEUED" },
+      });
+      return {
+        processedCount: 0,
+        successCount: 0,
+        failedCount: 0,
+        delayedCount: queuedCount,
+        message:
+          "Horário de silêncio ativo (DND 22h-08h BRT). Envios postergados para as 08:00.",
+      };
+    }
+
+    let tenantIdFilter: string | undefined = undefined;
+    if (userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { tenantId: true },
+      });
+      if (user?.tenantId) {
+        tenantIdFilter = user.tenantId;
+      }
+    }
+
+    const pendingLogs = await this.prisma.notificationLog.findMany({
+      where: {
+        status: "QUEUED",
+        ...(tenantIdFilter ? { tenantId: tenantIdFilter } : {}),
+      },
+      take: 100,
+      orderBy: { createdAt: "asc" },
+    });
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (const log of pendingLogs) {
+      const text = this.formatMessage(log.templateType, { name: "Aluno" });
+      const dispatch = await this.dispatchWhatsAppMessage(
+        log.tenantId,
+        log.recipientPhone,
+        text,
+      );
+
+      await this.prisma.notificationLog.update({
+        where: { id: log.id },
+        data: {
+          status: dispatch.status,
+          channel: dispatch.channel,
+          error: dispatch.error,
+          updatedAt: new Date(),
+        },
+      });
+
+      if (dispatch.status === "SENT") {
+        successCount++;
+      } else {
+        failedCount++;
+      }
+    }
+
+    return {
+      processedCount: pendingLogs.length,
+      successCount,
+      failedCount,
+      delayedCount: 0,
+      message: `Fila processada: ${successCount} enviados com sucesso, ${failedCount} com falha.`,
+    };
+  }
+}

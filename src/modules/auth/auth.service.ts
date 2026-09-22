@@ -64,7 +64,9 @@ export class AuthService {
       });
 
       if (!user) {
-        this.logger.log(`Password reset requested for non-existing email: ${email}`);
+        this.logger.log(
+          `Password reset requested for non-existing email: ${email}`,
+        );
         return genericResponse;
       }
 
@@ -89,11 +91,18 @@ export class AuthService {
       });
 
       // Dispatch email via Mailpit / SMTP
-      await this.mailerService.sendPasswordResetEmail(user.email, user.name, token);
+      await this.mailerService.sendPasswordResetEmail(
+        user.email,
+        user.name,
+        token,
+      );
 
       return genericResponse;
     } catch (error: any) {
-      this.logger.error(`Error in requestPasswordReset for ${email}: ${error.message}`, error.stack);
+      this.logger.error(
+        `Error in requestPasswordReset for ${email}: ${error.message}`,
+        error.stack,
+      );
       // For security and UX, still return generic message but log failure
       return genericResponse;
     }
@@ -108,11 +117,15 @@ export class AuthService {
     });
 
     if (!resetTokenRecord) {
-      throw new BadRequestException("Token de recuperação inválido ou expirado.");
+      throw new BadRequestException(
+        "Token de recuperação inválido ou expirado.",
+      );
     }
 
     if (resetTokenRecord.used) {
-      throw new BadRequestException("Este token de recuperação já foi utilizado.");
+      throw new BadRequestException(
+        "Este token de recuperação já foi utilizado.",
+      );
     }
 
     if (new Date() > resetTokenRecord.expiresAt) {
@@ -139,4 +152,3 @@ export class AuthService {
     };
   }
 }
-

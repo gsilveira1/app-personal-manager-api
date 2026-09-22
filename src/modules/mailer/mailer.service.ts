@@ -37,16 +37,28 @@ export class MailerService {
         html: options.html,
       });
 
-      this.logger.log(`Email sent successfully to ${options.to} (Message ID: ${info.messageId})`);
+      this.logger.log(
+        `Email sent successfully to ${options.to} (Message ID: ${info.messageId})`,
+      );
       return { messageId: info.messageId };
     } catch (error: any) {
-      this.logger.error(`Failed to send email to ${options.to}: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to send email to ${options.to}: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
 
-  async sendPasswordResetEmail(email: string, name: string, token: string): Promise<{ messageId: string }> {
-    const baseUrl = process.env.FRONTEND_URL || process.env.APP_CLIENT_URL || "http://localhost:5173";
+  async sendPasswordResetEmail(
+    email: string,
+    name: string,
+    token: string,
+  ): Promise<{ messageId: string }> {
+    const baseUrl =
+      process.env.FRONTEND_URL ||
+      process.env.APP_CLIENT_URL ||
+      "http://localhost:5173";
     const resetUrl = `${baseUrl}/#/reset-password?token=${token}`;
 
     const html = `

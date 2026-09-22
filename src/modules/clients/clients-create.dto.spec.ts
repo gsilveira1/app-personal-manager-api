@@ -94,7 +94,10 @@ describe("CreateClientDto", () => {
       checkInFrequency: "Weekly",
       subscriptionStatus: "Active",
     });
-    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
     expect(errors).toHaveLength(0);
     expect(dto.modality).toBe(ClientModality.ONLINE);
     expect(dto.status).toBe(ClientStatus.ACTIVE);
@@ -107,7 +110,10 @@ describe("CreateClientDto", () => {
       modality: ClientModality.HYBRID,
       checkInFreq: "Bi-weekly",
     });
-    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
     expect(errors).toHaveLength(0);
     expect(dto.checkInFreq).toBe("Bi-weekly");
   });
@@ -117,8 +123,10 @@ describe("CreateClientDto", () => {
       ...validData,
       unknownProp: "malicious_input",
     });
-    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    const errors = await validate(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
     expect(errors.some((e) => e.property === "unknownProp")).toBe(true);
   });
 });
-

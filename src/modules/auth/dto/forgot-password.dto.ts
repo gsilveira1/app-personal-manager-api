@@ -5,4 +5,3 @@ export class ForgotPasswordDto {
   @IsNotEmpty({ message: "O e-mail é obrigatório." })
   email!: string;
 }
-

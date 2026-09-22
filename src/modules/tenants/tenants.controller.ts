@@ -12,6 +12,7 @@ import {
 import { AuthGuard } from "@nestjs/passport";
 import { TenantsService } from "./tenants.service";
 import { UpdateBrandingDto } from "./dto/branding.dto";
+import { WhatsAppTestMessageDto } from "./dto/whatsapp-test-message.dto";
 import { RequestWithUser } from "../../types/global";
 
 @UseGuards(AuthGuard("jwt"))
@@ -49,9 +50,25 @@ export class TenantsController {
     return this.tenantsService.getWhatsappStatus(req.user.userId);
   }
 
+  @Post("whatsapp/disconnect")
+  @HttpCode(HttpStatus.OK)
+  async disconnectWhatsapp(@Request() req: RequestWithUser) {
+    return this.tenantsService.disconnectWhatsapp(req.user.userId);
+  }
+
+  @Post("whatsapp/test-message")
+  @HttpCode(HttpStatus.OK)
+  async sendTestMessage(
+    @Request() req: RequestWithUser,
+    @Body() dto: WhatsAppTestMessageDto,
+  ) {
+    return this.tenantsService.sendTestWhatsappMessage(req.user.userId, dto);
+  }
+
   @Post("setup/complete")
   @HttpCode(HttpStatus.OK)
   async completeSetup(@Request() req: RequestWithUser) {
     return this.tenantsService.completeSetup(req.user.userId);
   }
 }
+

@@ -293,7 +293,9 @@ export class WorkoutSheetsService {
       data: {
         ...(data.title ? { name: data.title } : {}),
         ...(data.name ? { name: data.name } : {}),
-        ...(data.description !== undefined ? { description: data.description } : {}),
+        ...(data.description !== undefined
+          ? { description: data.description }
+          : {}),
         structure: newStructure,
       },
     });

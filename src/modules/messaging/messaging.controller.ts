@@ -27,6 +27,12 @@ export class MessagingController {
     return this.messagingService.getTenantQueue(req.user.userId, query);
   }
 
+  @Post("queue/process")
+  @HttpCode(HttpStatus.OK)
+  processQueue(@Request() req: RequestWithUser) {
+    return this.messagingService.processPendingQueue(req.user.userId);
+  }
+
   @Post("queue/:id/retry")
   @HttpCode(HttpStatus.OK)
   retryMessage(@Request() req: RequestWithUser, @Param("id") logId: string) {
@@ -70,4 +76,3 @@ export class StudentMessagingController {
     );
   }
 }
-

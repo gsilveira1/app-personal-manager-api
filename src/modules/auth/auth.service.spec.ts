@@ -48,7 +48,9 @@ describe("AuthService", () => {
       $transaction: jest.fn((promises) => Promise.all(promises)),
     };
     mailerService = {
-      sendPasswordResetEmail: jest.fn().mockResolvedValue({ messageId: "msg-123" }),
+      sendPasswordResetEmail: jest
+        .fn()
+        .mockResolvedValue({ messageId: "msg-123" }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -93,7 +95,10 @@ describe("AuthService", () => {
       usersService.findByEmailForAuth!.mockResolvedValue(mockUser);
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
-      const result = await service.validateUser("  JOAO@EXAMPLE.COM  ", "senha123");
+      const result = await service.validateUser(
+        "  JOAO@EXAMPLE.COM  ",
+        "senha123",
+      );
 
       expect(usersService.findByEmailForAuth).toHaveBeenCalledWith(
         "joao@example.com",
@@ -172,8 +177,12 @@ describe("AuthService", () => {
   describe("requestPasswordReset", () => {
     it("should generate token, invalidate previous tokens, and send email when user exists", async () => {
       prismaService.user.findUnique.mockResolvedValue(mockUser);
-      prismaService.passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
-      prismaService.passwordResetToken.create.mockResolvedValue({ id: "token-1" });
+      prismaService.passwordResetToken.updateMany.mockResolvedValue({
+        count: 1,
+      });
+      prismaService.passwordResetToken.create.mockResolvedValue({
+        id: "token-1",
+      });
 
       const result = await service.requestPasswordReset("joao@example.com");
 

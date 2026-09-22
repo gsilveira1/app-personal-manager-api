@@ -38,12 +38,18 @@ export class StudentPortalService {
       action: "WORKOUT",
     };
 
+    const baseUrl = (
+      process.env.FRONTEND_URL ||
+      process.env.APP_CLIENT_URL ||
+      "http://localhost:5173"
+    ).replace(/\/$/, "");
+
     const token = this.jwtService.sign(payload, { expiresIn: "30d" });
     const slug = client.user.tenant?.slug || "p";
 
     return {
       token,
-      url: `/p/${slug}?token=${token}`,
+      url: `${baseUrl}/#/p/${slug}?token=${token}`,
     };
   }
 

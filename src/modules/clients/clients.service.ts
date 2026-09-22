@@ -24,11 +24,14 @@ export class ClientsService {
         ? (data.medicalHistory as unknown as Prisma.InputJsonValue)
         : undefined;
 
-      const dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : undefined;
+      const dateOfBirth = data.dateOfBirth
+        ? new Date(data.dateOfBirth)
+        : undefined;
       const status = data.status || ClientStatus.ACTIVE;
       const modality = data.modality || ClientModality.PRESENCIAL;
       const planId = data.planId || undefined;
-      const checkInFreq = data.checkInFrequency || data.checkInFreq || undefined;
+      const checkInFreq =
+        data.checkInFrequency || data.checkInFreq || undefined;
 
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -48,7 +51,9 @@ export class ClientsService {
           dateOfBirth,
           checkInFreq,
           notificationEnabled:
-            data.notificationEnabled !== undefined ? data.notificationEnabled : true,
+            data.notificationEnabled !== undefined
+              ? data.notificationEnabled
+              : true,
           planId,
           medicalHistory: medicalHistoryInput,
           userId,
@@ -119,7 +124,11 @@ export class ClientsService {
 
     if (query.modality) {
       const modUpper = query.modality.toUpperCase();
-      if (modUpper === "PRESENCIAL" || modUpper === "ONLINE" || modUpper === "HYBRID") {
+      if (
+        modUpper === "PRESENCIAL" ||
+        modUpper === "ONLINE" ||
+        modUpper === "HYBRID"
+      ) {
         where.modality = modUpper as ClientModality;
       }
     }
@@ -128,7 +137,11 @@ export class ClientsService {
       const statUpper = query.status.toUpperCase();
       if (statUpper === "ACTIVE" || statUpper === "ATIVO") {
         where.status = ClientStatus.ACTIVE;
-      } else if (statUpper === "PAUSED" || statUpper === "PAUSADA" || statUpper === "PAUSADO") {
+      } else if (
+        statUpper === "PAUSED" ||
+        statUpper === "PAUSADA" ||
+        statUpper === "PAUSADO"
+      ) {
         where.status = ClientStatus.PAUSED;
       } else if (
         statUpper === "OVERDUE" ||
@@ -143,9 +156,14 @@ export class ClientsService {
     }
 
     const sortOrderDir: Prisma.SortOrder =
-      query.sortOrder && String(query.sortOrder).toLowerCase() === "desc" ? "desc" : "asc";
+      query.sortOrder && String(query.sortOrder).toLowerCase() === "desc"
+        ? "desc"
+        : "asc";
 
-    const allowedSortMap: Record<string, keyof Prisma.ClientOrderByWithRelationInput> = {
+    const allowedSortMap: Record<
+      string,
+      keyof Prisma.ClientOrderByWithRelationInput
+    > = {
       name: "name",
       email: "email",
       status: "status",
@@ -270,7 +288,8 @@ export class ClientsService {
 
     const parsedDateOfBirth = dateOfBirth ? new Date(dateOfBirth) : undefined;
     const parsedPlanId = planId === "" ? null : planId;
-    const effectiveCheckInFreq = checkInFrequency !== undefined ? checkInFrequency : checkInFreq;
+    const effectiveCheckInFreq =
+      checkInFrequency !== undefined ? checkInFrequency : checkInFreq;
 
     return this.prisma.client.update({
       where: { id },
@@ -278,8 +297,12 @@ export class ClientsService {
         ...restData,
         ...(status !== undefined && { status }),
         ...(modality !== undefined && { modality }),
-        ...(effectiveCheckInFreq !== undefined && { checkInFreq: effectiveCheckInFreq }),
-        ...(parsedDateOfBirth !== undefined && { dateOfBirth: parsedDateOfBirth }),
+        ...(effectiveCheckInFreq !== undefined && {
+          checkInFreq: effectiveCheckInFreq,
+        }),
+        ...(parsedDateOfBirth !== undefined && {
+          dateOfBirth: parsedDateOfBirth,
+        }),
         ...(parsedPlanId !== undefined && { planId: parsedPlanId }),
         ...(medicalHistoryInput !== undefined && {
           medicalHistory: medicalHistoryInput,
@@ -371,7 +394,8 @@ export class ClientsService {
       orderBy: { name: "asc" },
     });
 
-    const headers = "Nome,Telefone,Email,Modalidade,Status,VencimentoAssinatura\n";
+    const headers =
+      "Nome,Telefone,Email,Modalidade,Status,VencimentoAssinatura\n";
     const rows = clients
       .map((c) => {
         const expiry = c.currentPeriodEnd
