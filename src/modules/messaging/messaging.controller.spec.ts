@@ -59,6 +59,7 @@ describe("MessagingControllers", () => {
 
     expect(mockMessagingService.processPendingQueue).toHaveBeenCalledWith(
       "user-1",
+      true,
     );
     expect(result).toEqual({
       processedCount: 2,

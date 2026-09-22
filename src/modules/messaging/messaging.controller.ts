@@ -29,9 +29,16 @@ export class MessagingController {
 
   @Post("queue/process")
   @HttpCode(HttpStatus.OK)
-  processQueue(@Request() req: RequestWithUser) {
-    return this.messagingService.processPendingQueue(req.user.userId);
+  processQueue(
+    @Request() req: RequestWithUser,
+    @Body() body?: { force?: boolean },
+  ) {
+    return this.messagingService.processPendingQueue(
+      req.user.userId,
+      body?.force ?? true,
+    );
   }
+
 
   @Post("queue/:id/retry")
   @HttpCode(HttpStatus.OK)

@@ -512,11 +512,12 @@ export class MessagingService {
 
   /**
    * Processes all queued notifications.
-   * If current time is inside DND window, skips processing and returns deferred count.
+   * If current time is inside DND window and force is false, skips processing and returns deferred count.
+   * If force is true, bypasses DND restriction and dispatches all queued notifications immediately.
    */
-  async processPendingQueue(userId?: string) {
+  async processPendingQueue(userId?: string, force: boolean = false) {
     const delayMs = this.calculateDndDelayMs();
-    if (delayMs > 0) {
+    if (delayMs > 0 && !force) {
       const queuedCount = await this.prisma.notificationLog.count({
         where: { status: "QUEUED" },
       });
@@ -529,6 +530,7 @@ export class MessagingService {
           "Horário de silêncio ativo (DND 22h-08h BRT). Envios postergados para as 08:00.",
       };
     }
+
 
     let tenantIdFilter: string | undefined = undefined;
     if (userId) {
