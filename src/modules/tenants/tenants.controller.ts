@@ -12,6 +12,7 @@ import {
 import { AuthGuard } from "@nestjs/passport";
 import { TenantsService } from "./tenants.service";
 import { UpdateBrandingDto } from "./dto/branding.dto";
+import { UpdateDndSettingsDto } from "./dto/dnd-settings.dto";
 import { WhatsAppTestMessageDto } from "./dto/whatsapp-test-message.dto";
 import { RequestWithUser } from "../../types/global";
 
@@ -31,6 +32,14 @@ export class TenantsController {
     @Body() dto: UpdateBrandingDto,
   ) {
     return this.tenantsService.updateBranding(req.user.userId, dto);
+  }
+
+  @Patch("dnd-settings")
+  async updateDndSettings(
+    @Request() req: RequestWithUser,
+    @Body() dto: UpdateDndSettingsDto,
+  ) {
+    return this.tenantsService.updateDndSettings(req.user.userId, dto);
   }
 
   @Post("setup/connect-whatsapp")
@@ -71,4 +80,3 @@ export class TenantsController {
     return this.tenantsService.completeSetup(req.user.userId);
   }
 }
-

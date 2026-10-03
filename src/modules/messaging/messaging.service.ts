@@ -7,6 +7,20 @@ import { WhatsAppService } from "./whatsapp.service";
 
 export const SAO_PAULO_TZ = "America/Sao_Paulo";
 
+export interface TenantDndConfig {
+  enabled: boolean;
+  startHour: number;
+  endHour: number;
+  timezone: string;
+}
+
+export const DEFAULT_DND_CONFIG: TenantDndConfig = {
+  enabled: true,
+  startHour: 22,
+  endHour: 8,
+  timezone: SAO_PAULO_TZ,
+};
+
 export interface EnqueueNotificationParams {
   tenantId?: string | null;
   recipientPhone: string;
@@ -40,29 +54,110 @@ export class MessagingService {
   ) {}
 
   /**
-   * Calculates delay in milliseconds if the current time falls within DND window (22:00 to 08:00 America/Sao_Paulo).
-   * If now is 23:00 or 02:30, delays execution until 08:00:00 of the upcoming morning.
+   * Retrieves tenant-specific DND settings from tenant.features.
+   * Supports both flat (dndEnabled, dndStartHour, dndEndHour, dndTimezone)
+   * and nested (dnd: { enabled, startHour, endHour, timezone }).
    */
-  calculateDndDelayMs(nowUtc: Date = new Date()): number {
-    const zonedNow = utcToZonedTime(nowUtc, SAO_PAULO_TZ);
+  async getTenantDndConfig(tenantId?: string | null): Promise<TenantDndConfig> {
+    if (!tenantId) {
+      return DEFAULT_DND_CONFIG;
+    }
+
+    try {
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { features: true },
+      });
+
+      if (!tenant || !tenant.features) {
+        return DEFAULT_DND_CONFIG;
+      }
+
+      const features: any =
+        typeof tenant.features === "string"
+          ? JSON.parse(tenant.features)
+          : tenant.features;
+
+      const dndNested = features.dnd;
+      const enabled =
+        dndNested?.enabled !== undefined
+          ? Boolean(dndNested.enabled)
+          : features.dndEnabled !== undefined
+            ? Boolean(features.dndEnabled)
+            : true;
+
+      const startHour =
+        dndNested?.startHour !== undefined
+          ? Number(dndNested.startHour)
+          : features.dndStartHour !== undefined
+            ? Number(features.dndStartHour)
+            : 22;
+
+      const endHour =
+        dndNested?.endHour !== undefined
+          ? Number(dndNested.endHour)
+          : features.dndEndHour !== undefined
+            ? Number(features.dndEndHour)
+            : 8;
+
+      const timezone =
+        dndNested?.timezone || features.dndTimezone || SAO_PAULO_TZ;
+
+      return {
+        enabled,
+        startHour,
+        endHour,
+        timezone,
+      };
+    } catch (err: any) {
+      this.logger.error(
+        `Error loading DND config for tenant ${tenantId}: ${err.message}`,
+      );
+      return DEFAULT_DND_CONFIG;
+    }
+  }
+
+  /**
+   * Calculates delay in milliseconds if the current time falls within the configured DND window.
+   * If DND is disabled (enabled: false) for this tenant, returns 0 for immediate dispatch.
+   */
+  calculateDndDelayMs(
+    nowUtc: Date = new Date(),
+    config: Partial<TenantDndConfig> = DEFAULT_DND_CONFIG,
+  ): number {
+    const enabled = config.enabled ?? true;
+    if (!enabled) {
+      return 0; // DND feature flag is disabled for this tenant
+    }
+
+    const startHour = config.startHour ?? 22;
+    const endHour = config.endHour ?? 8;
+    const timezone = config.timezone || SAO_PAULO_TZ;
+
+    const zonedNow = utcToZonedTime(nowUtc, timezone);
     const hour = zonedNow.getHours();
 
-    // DND is between 22:00 (10 PM) and 08:00 (8 AM)
-    const isDnd = hour >= 22 || hour < 8;
+    let isDnd = false;
+    if (startHour > endHour) {
+      // Overnight window (e.g. 22:00 to 08:00)
+      isDnd = hour >= startHour || hour < endHour;
+    } else if (startHour < endHour) {
+      // Same-day window (e.g. 13:00 to 15:00)
+      isDnd = hour >= startHour && hour < endHour;
+    }
 
     if (!isDnd) {
       return 0; // Immediate execution allowed
     }
 
-    // Determine target 08:00 AM in America/Sao_Paulo
+    // Determine target endHour in tenant timezone
     const targetZoned = new Date(zonedNow);
-    if (hour >= 22) {
-      // 08:00 AM next day
+    if (startHour > endHour && hour >= startHour) {
       targetZoned.setDate(targetZoned.getDate() + 1);
     }
-    targetZoned.setHours(8, 0, 0, 0);
+    targetZoned.setHours(endHour, 0, 0, 0);
 
-    const targetUtc = zonedTimeToUtc(targetZoned, SAO_PAULO_TZ);
+    const targetUtc = zonedTimeToUtc(targetZoned, timezone);
     const delayMs = Math.max(0, targetUtc.getTime() - nowUtc.getTime());
     return delayMs;
   }
@@ -192,7 +287,8 @@ export class MessagingService {
    * Unified notification enqueue and dispatch method.
    */
   async enqueueNotification(params: EnqueueNotificationParams) {
-    const delayMs = this.calculateDndDelayMs();
+    const dndConfig = await this.getTenantDndConfig(params.tenantId);
+    const delayMs = this.calculateDndDelayMs(new Date(), dndConfig);
     const isDnd = delayMs > 0 && !params.forceDispatch;
     const text =
       params.content ||
@@ -280,7 +376,8 @@ export class MessagingService {
       templateType = "WORKOUT_LINK";
     }
 
-    const delayMs = this.calculateDndDelayMs();
+    const dndConfig = await this.getTenantDndConfig(client.user.tenantId);
+    const delayMs = this.calculateDndDelayMs(new Date(), dndConfig);
     const isDnd = delayMs > 0;
     const text = this.formatMessage(templateType, {
       name: client.name,
@@ -516,22 +613,6 @@ export class MessagingService {
    * If force is true, bypasses DND restriction and dispatches all queued notifications immediately.
    */
   async processPendingQueue(userId?: string, force: boolean = false) {
-    const delayMs = this.calculateDndDelayMs();
-    if (delayMs > 0 && !force) {
-      const queuedCount = await this.prisma.notificationLog.count({
-        where: { status: "QUEUED" },
-      });
-      return {
-        processedCount: 0,
-        successCount: 0,
-        failedCount: 0,
-        delayedCount: queuedCount,
-        message:
-          "Horário de silêncio ativo (DND 22h-08h BRT). Envios postergados para as 08:00.",
-      };
-    }
-
-
     let tenantIdFilter: string | undefined = undefined;
     if (userId) {
       const user = await this.prisma.user.findUnique({
@@ -540,6 +621,38 @@ export class MessagingService {
       });
       if (user?.tenantId) {
         tenantIdFilter = user.tenantId;
+      }
+    }
+
+    if (tenantIdFilter && !force) {
+      const dndConfig = await this.getTenantDndConfig(tenantIdFilter);
+      const delayMs = this.calculateDndDelayMs(new Date(), dndConfig);
+      if (delayMs > 0) {
+        const queuedCount = await this.prisma.notificationLog.count({
+          where: { status: "QUEUED", tenantId: tenantIdFilter },
+        });
+        return {
+          processedCount: 0,
+          successCount: 0,
+          failedCount: 0,
+          delayedCount: queuedCount,
+          message: `Horário de silêncio ativo (${dndConfig.startHour}h-${dndConfig.endHour}h ${dndConfig.timezone}). Envios postergados.`,
+        };
+      }
+    } else if (!tenantIdFilter && !force) {
+      const defaultDelay = this.calculateDndDelayMs();
+      if (defaultDelay > 0) {
+        const queuedCount = await this.prisma.notificationLog.count({
+          where: { status: "QUEUED" },
+        });
+        return {
+          processedCount: 0,
+          successCount: 0,
+          failedCount: 0,
+          delayedCount: queuedCount,
+          message:
+            "Horário de silêncio ativo (DND 22h-08h BRT). Envios postergados para as 08:00.",
+        };
       }
     }
 
@@ -554,8 +667,18 @@ export class MessagingService {
 
     let successCount = 0;
     let failedCount = 0;
+    let delayedCount = 0;
 
     for (const log of pendingLogs) {
+      if (!tenantIdFilter && !force && log.tenantId) {
+        const logDndConfig = await this.getTenantDndConfig(log.tenantId);
+        const logDelay = this.calculateDndDelayMs(new Date(), logDndConfig);
+        if (logDelay > 0) {
+          delayedCount++;
+          continue;
+        }
+      }
+
       const text = this.formatMessage(log.templateType, { name: "Aluno" });
       const dispatch = await this.dispatchWhatsAppMessage(
         log.tenantId,
@@ -581,11 +704,11 @@ export class MessagingService {
     }
 
     return {
-      processedCount: pendingLogs.length,
+      processedCount: pendingLogs.length - delayedCount,
       successCount,
       failedCount,
-      delayedCount: 0,
-      message: `Fila processada: ${successCount} enviados com sucesso, ${failedCount} com falha.`,
+      delayedCount,
+      message: `Fila processada: ${successCount} enviados com sucesso, ${failedCount} com falha${delayedCount > 0 ? `, ${delayedCount} retidos em DND` : ""}.`,
     };
   }
 }

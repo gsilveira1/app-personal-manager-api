@@ -322,7 +322,9 @@ describe("WhatsAppService", () => {
 
       const result = await service.disconnectInstance("tenant-vivi-001");
       expect(result.success).toBe(false);
-      expect(result.error).toContain("Network error calling Evolution API logout");
+      expect(result.error).toContain(
+        "Network error calling Evolution API logout",
+      );
     });
   });
 });

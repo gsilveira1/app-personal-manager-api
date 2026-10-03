@@ -72,9 +72,92 @@ describe("MessagingService", () => {
       module.get<StudentPortalService>(StudentPortalService);
     _whatsappService = module.get<WhatsAppService>(WhatsAppService);
     jest.clearAllMocks();
+
+    mockPrismaService.tenant.findUnique.mockResolvedValue({
+      id: "tenant-1",
+      whatsappStatus: "CONNECTED",
+      whatsappInstanceName: "tenant-vivi-001",
+      features: { dndEnabled: true, dndStartHour: 22, dndEndHour: 8 },
+    });
+    mockPrismaService.tenant.update.mockResolvedValue({
+      id: "tenant-1",
+      whatsappStatus: "CONNECTED",
+    });
+  });
+
+  describe("getTenantDndConfig", () => {
+    it("should return default DND config when tenantId is null or missing", async () => {
+      const config = await service.getTenantDndConfig(null);
+      expect(config).toEqual({
+        enabled: true,
+        startHour: 22,
+        endHour: 8,
+        timezone: "America/Sao_Paulo",
+      });
+    });
+
+    it("should parse flat DND feature flags from tenant.features", async () => {
+      mockPrismaService.tenant.findUnique.mockResolvedValueOnce({
+        features: {
+          dndEnabled: false,
+          dndStartHour: 23,
+          dndEndHour: 7,
+          dndTimezone: "America/Manaus",
+        },
+      });
+
+      const config = await service.getTenantDndConfig("tenant-flat");
+      expect(config).toEqual({
+        enabled: false,
+        startHour: 23,
+        endHour: 7,
+        timezone: "America/Manaus",
+      });
+    });
+
+    it("should parse nested DND feature flags from tenant.features", async () => {
+      mockPrismaService.tenant.findUnique.mockResolvedValueOnce({
+        features: {
+          dnd: {
+            enabled: false,
+            startHour: 20,
+            endHour: 6,
+            timezone: "America/Cuiaba",
+          },
+        },
+      });
+
+      const config = await service.getTenantDndConfig("tenant-nested");
+      expect(config).toEqual({
+        enabled: false,
+        startHour: 20,
+        endHour: 6,
+        timezone: "America/Cuiaba",
+      });
+    });
+
+    it("should fallback to defaults on malformed JSON or Prisma errors", async () => {
+      mockPrismaService.tenant.findUnique.mockRejectedValueOnce(
+        new Error("DB error"),
+      );
+
+      const config = await service.getTenantDndConfig("tenant-err");
+      expect(config.enabled).toBe(true);
+      expect(config.startHour).toBe(22);
+      expect(config.endHour).toBe(8);
+    });
   });
 
   describe("calculateDndDelayMs", () => {
+    it("should return 0 delay when DND feature flag is disabled (enabled: false)", () => {
+      // 02:30 BRT would normally be in DND
+      const nightTimeUtc = new Date("2026-09-20T05:30:00.000Z");
+      const delay = service.calculateDndDelayMs(nightTimeUtc, {
+        enabled: false,
+      });
+      expect(delay).toBe(0);
+    });
+
     it("should return 0 delay during daytime in America/Sao_Paulo (e.g. 14:00 BRT)", () => {
       // 14:00 BRT is 17:00 UTC (UTC-3)
       const dayTimeUtc = new Date("2026-09-20T17:00:00.000Z");
@@ -96,6 +179,20 @@ describe("MessagingService", () => {
       const nightTimeUtc = new Date("2026-09-20T02:00:00.000Z");
       const delay = service.calculateDndDelayMs(nightTimeUtc);
       expect(delay).toBeGreaterThan(0);
+    });
+
+    it("should respect custom DND startHour and endHour per tenant", () => {
+      // 21:00 BRT is 00:00 UTC next day
+      const eveningTimeUtc = new Date("2026-09-20T00:00:00.000Z");
+      // Default (22-8) is not in DND at 21:00
+      expect(service.calculateDndDelayMs(eveningTimeUtc)).toBe(0);
+      // Custom (20-6) is in DND at 21:00
+      const customDelay = service.calculateDndDelayMs(eveningTimeUtc, {
+        enabled: true,
+        startHour: 20,
+        endHour: 6,
+      });
+      expect(customDelay).toBeGreaterThan(0);
     });
   });
 
@@ -357,7 +454,7 @@ describe("MessagingService", () => {
         },
       });
 
-      mockPrismaService.tenant.findUnique.mockResolvedValueOnce({
+      mockPrismaService.tenant.findUnique.mockResolvedValue({
         whatsappStatus: "DISCONNECTED",
       });
 
@@ -440,6 +537,36 @@ describe("MessagingService", () => {
           }),
         }),
       );
+    });
+
+    it("should immediately dispatch notification when tenant has dndEnabled: false feature flag even during night", async () => {
+      // Tenant features has dndEnabled: false
+      mockPrismaService.tenant.findUnique.mockResolvedValueOnce({
+        features: { dndEnabled: false },
+      });
+      // Second findUnique for dispatchWhatsAppMessage tenant lookup
+      mockPrismaService.tenant.findUnique.mockResolvedValueOnce({
+        whatsappStatus: "CONNECTED",
+        whatsappInstanceName: "tenant-vivi-001",
+      });
+      mockWhatsAppService.sendTextMessage.mockResolvedValueOnce({
+        success: true,
+        messageId: "msg-dnd-disabled",
+      });
+      mockPrismaService.notificationLog.create.mockResolvedValueOnce({
+        id: "log-dnd-disabled",
+      });
+
+      const result = await service.enqueueNotification({
+        tenantId: "tenant-dnd-off",
+        recipientPhone: "+5511988887777",
+        templateType: "WELCOME_ANAMNESIS",
+        clientName: "Fernanda",
+      });
+
+      expect(result.status).toBe("SENT");
+      expect(result.channel).toBe("WHATSAPP");
+      expect(mockWhatsAppService.sendTextMessage).toHaveBeenCalled();
     });
   });
 

@@ -12,6 +12,7 @@ describe("TenantsController", () => {
   const mockTenantsService = {
     getOrCreateTenantForUser: jest.fn(),
     updateBranding: jest.fn(),
+    updateDndSettings: jest.fn(),
     connectWhatsapp: jest.fn(),
     getWhatsappStatus: jest.fn(),
     disconnectWhatsapp: jest.fn(),
@@ -70,6 +71,29 @@ describe("TenantsController", () => {
 
     expect(result).toEqual(mockUpdatedTenant);
     expect(service.updateBranding).toHaveBeenCalledWith("user-1", dto);
+  });
+
+  it("should update DND settings via patch /dnd-settings", async () => {
+    const dto = {
+      dndEnabled: false,
+      dndStartHour: 23,
+      dndEndHour: 7,
+      dndTimezone: "America/Sao_Paulo",
+    };
+    const mockUpdatedTenant = {
+      id: "tenant-1",
+      features: { ...dto },
+    };
+    mockTenantsService.updateDndSettings.mockResolvedValue(mockUpdatedTenant);
+
+    const req = { user: { userId: "user-1" } } as RequestWithUser;
+    const result = await controller.updateDndSettings(req, dto);
+
+    expect(result).toEqual(mockUpdatedTenant);
+    expect(mockTenantsService.updateDndSettings).toHaveBeenCalledWith(
+      "user-1",
+      dto,
+    );
   });
 
   it("should connect whatsapp via whatsapp/connect", async () => {
@@ -136,13 +160,17 @@ describe("TenantsController", () => {
       status: WhatsappStatus.DISCONNECTED,
       instanceName: "tenant-1",
     };
-    mockTenantsService.disconnectWhatsapp = jest.fn().mockResolvedValue(mockResponse);
+    mockTenantsService.disconnectWhatsapp = jest
+      .fn()
+      .mockResolvedValue(mockResponse);
 
     const req = { user: { userId: "user-1" } } as RequestWithUser;
     const result = await controller.disconnectWhatsapp(req);
 
     expect(result).toEqual(mockResponse);
-    expect(mockTenantsService.disconnectWhatsapp).toHaveBeenCalledWith("user-1");
+    expect(mockTenantsService.disconnectWhatsapp).toHaveBeenCalledWith(
+      "user-1",
+    );
   });
 
   it("should send test message via whatsapp/test-message", async () => {
@@ -150,13 +178,18 @@ describe("TenantsController", () => {
       success: true,
       messageId: "msg-123",
     };
-    mockTenantsService.sendTestWhatsappMessage = jest.fn().mockResolvedValue(mockResponse);
+    mockTenantsService.sendTestWhatsappMessage = jest
+      .fn()
+      .mockResolvedValue(mockResponse);
 
     const req = { user: { userId: "user-1" } } as RequestWithUser;
     const dto = { phone: "5553999999999", message: "Hello test" };
     const result = await controller.sendTestMessage(req, dto);
 
     expect(result).toEqual(mockResponse);
-    expect(mockTenantsService.sendTestWhatsappMessage).toHaveBeenCalledWith("user-1", dto);
+    expect(mockTenantsService.sendTestWhatsappMessage).toHaveBeenCalledWith(
+      "user-1",
+      dto,
+    );
   });
 });

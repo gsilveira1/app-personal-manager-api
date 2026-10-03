@@ -12,4 +12,3 @@ import { MessagingModule } from "../messaging/messaging.module";
   exports: [TenantsService],
 })
 export class TenantsModule {}
-

@@ -39,7 +39,6 @@ export class MessagingController {
     );
   }
 
-
   @Post("queue/:id/retry")
   @HttpCode(HttpStatus.OK)
   retryMessage(@Request() req: RequestWithUser, @Param("id") logId: string) {

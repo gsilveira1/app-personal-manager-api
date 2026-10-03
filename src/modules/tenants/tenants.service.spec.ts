@@ -47,7 +47,6 @@ describe("TenantsService", () => {
     _whatsappService = module.get<WhatsAppService>(WhatsAppService);
   });
 
-
   afterEach(() => {
     jest.clearAllMocks();
   });
@@ -147,6 +146,55 @@ describe("TenantsService", () => {
     });
   });
 
+  describe("updateDndSettings", () => {
+    it("should merge and update DND feature flags in tenant.features", async () => {
+      const mockTenant = {
+        id: "tenant-1",
+        features: { maxStudents: 50, canUploadVideos: true },
+      };
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        id: "user-1",
+        tenant: mockTenant,
+      });
+
+      const updatedTenant = {
+        ...mockTenant,
+        features: {
+          maxStudents: 50,
+          canUploadVideos: true,
+          dndEnabled: false,
+          dndStartHour: 23,
+          dndEndHour: 7,
+          dndTimezone: "America/Sao_Paulo",
+        },
+      };
+
+      mockPrismaService.tenant.update.mockResolvedValue(updatedTenant);
+
+      const result = await service.updateDndSettings("user-1", {
+        dndEnabled: false,
+        dndStartHour: 23,
+        dndEndHour: 7,
+        dndTimezone: "America/Sao_Paulo",
+      });
+
+      expect(result.features).toEqual(updatedTenant.features);
+      expect(mockPrismaService.tenant.update).toHaveBeenCalledWith({
+        where: { id: "tenant-1" },
+        data: {
+          features: {
+            maxStudents: 50,
+            canUploadVideos: true,
+            dndEnabled: false,
+            dndStartHour: 23,
+            dndEndHour: 7,
+            dndTimezone: "America/Sao_Paulo",
+          },
+        },
+      });
+    });
+  });
+
   describe("connectWhatsapp", () => {
     it("should generate QR code and return connection status in offline fallback mode", async () => {
       const mockTenant = {
@@ -223,7 +271,9 @@ describe("TenantsService", () => {
         id: "user-1",
         tenant: mockTenant,
       });
-      mockWhatsAppService.checkInstanceStatus.mockResolvedValue({ status: "CONNECTED" });
+      mockWhatsAppService.checkInstanceStatus.mockResolvedValue({
+        status: "CONNECTED",
+      });
 
       const result = await service.getWhatsappStatus("user-1");
       expect(result).toEqual({
@@ -242,7 +292,9 @@ describe("TenantsService", () => {
         id: "user-1",
         tenant: mockTenant,
       });
-      mockWhatsAppService.checkInstanceStatus.mockResolvedValue({ status: "CONNECTED" });
+      mockWhatsAppService.checkInstanceStatus.mockResolvedValue({
+        status: "CONNECTED",
+      });
       mockPrismaService.tenant.update.mockResolvedValue({
         ...mockTenant,
         whatsappStatus: WhatsappStatus.CONNECTED,
@@ -268,14 +320,18 @@ describe("TenantsService", () => {
         id: "user-1",
         tenant: mockTenant,
       });
-      mockWhatsAppService.disconnectInstance.mockResolvedValue({ success: true });
+      mockWhatsAppService.disconnectInstance.mockResolvedValue({
+        success: true,
+      });
       mockPrismaService.tenant.update.mockResolvedValue({
         ...mockTenant,
         whatsappStatus: WhatsappStatus.DISCONNECTED,
       });
 
       const result = await service.disconnectWhatsapp("user-1");
-      expect(mockWhatsAppService.disconnectInstance).toHaveBeenCalledWith("tenant-vivi-001");
+      expect(mockWhatsAppService.disconnectInstance).toHaveBeenCalledWith(
+        "tenant-vivi-001",
+      );
       expect(mockPrismaService.tenant.update).toHaveBeenCalledWith({
         where: { id: "tenant-1" },
         data: { whatsappStatus: WhatsappStatus.DISCONNECTED },
@@ -296,7 +352,10 @@ describe("TenantsService", () => {
       });
 
       await expect(
-        service.sendTestWhatsappMessage("user-1", { phone: "5553999999999", message: "test" }),
+        service.sendTestWhatsappMessage("user-1", {
+          phone: "5553999999999",
+          message: "test",
+        }),
       ).rejects.toThrow(BadRequestException);
     });
 

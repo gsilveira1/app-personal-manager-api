@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from "@nestjs/common";
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../prisma/prisma.service";
 import { WhatsAppService } from "../messaging/whatsapp.service";
@@ -67,6 +72,39 @@ export class TenantsService {
         ...(dto.primaryColor !== undefined && {
           primaryColor: dto.primaryColor,
         }),
+      },
+    });
+
+    return updated;
+  }
+
+  async updateDndSettings(
+    userId: string,
+    dto: {
+      dndEnabled?: boolean;
+      dndStartHour?: number;
+      dndEndHour?: number;
+      dndTimezone?: string;
+    },
+  ) {
+    const tenant = await this.getOrCreateTenantForUser(userId);
+    const currentFeatures =
+      typeof tenant.features === "object" && tenant.features !== null
+        ? (tenant.features as Record<string, any>)
+        : {};
+
+    const updatedFeatures = {
+      ...currentFeatures,
+      ...(dto.dndEnabled !== undefined && { dndEnabled: dto.dndEnabled }),
+      ...(dto.dndStartHour !== undefined && { dndStartHour: dto.dndStartHour }),
+      ...(dto.dndEndHour !== undefined && { dndEndHour: dto.dndEndHour }),
+      ...(dto.dndTimezone !== undefined && { dndTimezone: dto.dndTimezone }),
+    };
+
+    const updated = await this.prisma.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        features: updatedFeatures,
       },
     });
 
@@ -173,7 +211,10 @@ export class TenantsService {
         const check = await this.whatsappService.checkInstanceStatus(
           tenant.whatsappInstanceName,
         );
-        if (check.status === "CONNECTED" && currentStatus !== WhatsappStatus.CONNECTED) {
+        if (
+          check.status === "CONNECTED" &&
+          currentStatus !== WhatsappStatus.CONNECTED
+        ) {
           currentStatus = WhatsappStatus.CONNECTED;
           await this.prisma.tenant.update({
             where: { id: tenant.id },
@@ -190,7 +231,9 @@ export class TenantsService {
           });
         }
       } catch (err: any) {
-        this.logger.warn(`Failed to check live WhatsApp status: ${err.message}`);
+        this.logger.warn(
+          `Failed to check live WhatsApp status: ${err.message}`,
+        );
       }
     }
 
@@ -204,7 +247,9 @@ export class TenantsService {
     const tenant = await this.getOrCreateTenantForUser(userId);
 
     if (tenant.whatsappInstanceName) {
-      await this.whatsappService.disconnectInstance(tenant.whatsappInstanceName);
+      await this.whatsappService.disconnectInstance(
+        tenant.whatsappInstanceName,
+      );
     }
 
     const updated = await this.prisma.tenant.update({
