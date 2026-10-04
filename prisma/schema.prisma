@@ -1,3 +1,17 @@
+// Vivi API — consolidated schema (v2, 11 models).
+// Source of truth for the decisions: docs/api-contract-v2.md (section 2 lists every
+// deviation from the schema approved in the design session, with its reason).
+//
+// JSONB columns are typed and validated in src/common/types/*:
+//   User.settings              -> user-settings.ts
+//   WorkoutSheet.structure     -> workout-structure.ts
+//   StudentSession.executionData -> execution-data.ts
+//   Assessment.data            -> assessment-data.ts
+//   Plan.features (String[])   -> plan-features.ts
+//
+// Constraints Prisma cannot express live in the baseline migration SQL
+// (prisma/migrations/20261003000000_baseline_v2/migration.sql, bottom section).
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -6,7 +20,14 @@ datasource db {
   provider = "postgresql"
 }
 
-// Enums
+// --- Enums ---
+
+enum AccountStatus {
+  ACTIVE
+  BLOCKED
+  OVERDUE
+}
+
 enum ClientStatus {
   ACTIVE
   PAUSED
@@ -20,500 +41,89 @@ enum ClientModality {
   HYBRID
 }
 
-enum TenantStatus {
-  ACTIVE
-  BLOCKED
-  OVERDUE
-}
-
 enum WhatsappStatus {
   CONNECTED
   DISCONNECTED
   PENDING
 }
 
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  INCOMPLETE
+}
+
+enum PaymentProvider {
+  MANUAL
+  STRIPE
+  ASAAS
+  MERCADOPAGO
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum EventType {
+  SESSION
+  BLOCK
+}
+
+enum EventStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum AssessmentType {
+  ANAMNESIS
+  PHYSICAL_EVALUATION
+}
+
 // --- Models ---
 
-model Tenant {
+/// The trainer. Owns the business account: login, profile, public slug, branding,
+/// WhatsApp connection and settings (Tenant and UserSetting were merged in here).
+/// Owner module: identity.
+model User {
   id                   String         @id @default(uuid())
   name                 String
+  email                String         @unique
+  password             String
+  role                 String         @default("trainer") // 'admin' | 'trainer'
+  /// Account standing, formerly Tenant.status. BLOCKED/OVERDUE lock the student portal.
+  status               AccountStatus  @default(ACTIVE)
+  avatar               String?
+  phone                String?
+  bio                  String?
+  /// Public address of the trainer, e.g. "gabriel-personal" -> /api/public/gabriel-personal/...
   slug                 String         @unique
-  status               TenantStatus   @default(ACTIVE)
   primaryColor         String?        @default("#10B981")
   logoUrl              String?
   whatsappInstanceName String?        @unique
   whatsappStatus       WhatsappStatus @default(PENDING)
   setupCompleted       Boolean        @default(false)
-  features             Json?          @default("{\"maxStudents\": 50, \"canUploadVideos\": true, \"whatsappAlerts\": true}")
+  /// UserSettings document (src/common/types/user-settings.ts)
+  settings             Json?          @default("{}")
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
-  users            User[]
-  clients          Client[]
-  exercises        Exercise[]
-  notificationLogs NotificationLog[]
-}
-
-model User {
-  id        String   @id @default(uuid())
-  name      String
-  email     String   @unique
-  password  String
-  role      String   @default("user") // 'admin', 'trainer'
-  avatar    String?
-  phone     String?
-  bio       String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Multi-tenant
-  tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-
-  // Relacionamentos: O usuário é dono de tudo isso
-  clients            Client[]
-  sessions           Session[]
-  recurringEvents    RecurringEvent[]
-  plans              Plan[]
-  settings           UserSetting[]
-  availabilityBlocks AvailabilityBlock[]
-  manualPayments     ManualPayment[]
-  anamneses          Anamnesis[]
-  workoutSheets      WorkoutSheet[]
-  workoutTemplates   WorkoutTemplate[]
-  exercises          Exercise[]
+  clients             Client[]
+  plans               Plan[]
+  payments            Payment[]
+  workoutSheets       WorkoutSheet[]
+  exercises           Exercise[]
+  events              Event[]
+  assessments         Assessment[]
+  notificationLogs    NotificationLog[]
   passwordResetTokens PasswordResetToken[]
-
-  @@index([tenantId])
 }
 
-model Client {
-  id                  String         @id @default(uuid())
-  name                String
-  email               String         @unique
-  phone               String
-  status              ClientStatus   @default(ACTIVE)
-  modality            ClientModality @default(PRESENCIAL)
-  currentPeriodEnd    DateTime?
-  goal                String?
-  avatar              String?
-  notes               String?
-  dateOfBirth         DateTime?
-  checkInFreq         String?
-  medicalHistory      Json?
-  notificationEnabled Boolean        @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relacionamento com Plano
-  planId String?
-  plan   Plan?   @relation(fields: [planId], references: [id])
-
-  // Multi-tenant: Vinculado ao Tenant e ao Usuário (Treinador)
-  tenantId String?
-  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-
-  // Relacionamento com Usuário (Dono do registro)
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  // Outros relacionamentos
-  sessions        Session[]
-  recurringEvents RecurringEvent[]
-  evaluations     Evaluation[]
-  manualPayments  ManualPayment[]
-  anamneses       Anamnesis[]
-  workoutSheets   WorkoutSheet[]
-  studentSessions StudentSession[]
-
-  @@index([userId])
-  @@index([tenantId])
-  @@index([status])
-  @@index([modality])
-  @@index([planId])
-}
-
-model Plan {
-  id              String   @id @default(uuid())
-  type            String // 'PRESENCIAL' | 'CONSULTORIA'
-  name            String // e.g., "Hipertrofia 2x na Semana (60min)"
-  sessionsPerWeek Int // 1–6 for PRESENCIAL, 1–2 for CONSULTORIA
-  durationMinutes Int? // 30, 45, 60, 90 (null for CONSULTORIA)
-  price           Float
-  active          Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  // Planos pertencem a um Usuário (Treinador)
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  clients  Client[]
-  features PlanFeature[]
-
-  @@index([userId])
-}
-
-model SystemFeature {
-  id          String  @id @default(uuid())
-  key         String  @unique // e.g. "ai_whatsapp_bot", "posture_correction"
-  name        String // Display name, e.g. "Bot WhatsApp com IA"
-  description String?
-  isActive    Boolean @default(true) // Admin can deactivate globally
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  plans PlanFeature[]
-}
-
-model PlanFeature {
-  planId    String
-  plan      Plan          @relation(fields: [planId], references: [id], onDelete: Cascade)
-  featureId String
-  feature   SystemFeature @relation(fields: [featureId], references: [id], onDelete: Restrict)
-
-  assignedAt DateTime @default(now())
-
-  @@id([planId, featureId])
-  @@index([featureId])
-}
-
-model Session {
-  id              String   @id @default(uuid())
-  date            DateTime
-  durationMinutes Int
-  type            String
-  category        String
-  completed       Boolean  @default(false)
-  cancelled       Boolean  @default(false)
-  notes           String?
-  recurrenceId    String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relacionamento com Cliente (Quem treinou)
-  clientId String
-  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  // Relacionamento com Usuário (Responsável pela sessão/Treinador)
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  // Relacionamento com Treino (Ficha / Divisão)
-  linkedWorkoutId String?
-  workout         WorkoutSheetItem? @relation(fields: [linkedWorkoutId], references: [id], onDelete: SetNull)
-
-  @@index([userId, date])
-  @@index([clientId])
-  @@index([linkedWorkoutId])
-}
-
-model Evaluation {
-  id                String   @id @default(uuid())
-  date              DateTime
-  weight            Float
-  height            Float?
-  bodyFatPercentage Float?
-  leanMass          Float?
-  fatMass           Float?
-  bodyDensity       Float?
-  protocol          String?
-  equation          String?
-  notes             String?
-  perimeters        Json?
-  skinfolds         Json?
-
-  // Avaliações pertencem a um Cliente
-  clientId String
-  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([clientId])
-}
-
-// Configurações específicas por Usuário
-model UserSetting {
-  key   String
-  value String
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  // Chave composta: cada usuário pode ter sua própria chave 'ai_prompt', por exemplo.
-  @@id([userId, key])
-}
-
-// ---
-// RFC 5545-based recurrence (Google Calendar model)
-// ---
-
-model RecurringEvent {
-  id              String   @id @default(uuid())
-  /// Full RRULE string, e.g. "FREQ=WEEKLY;BYDAY=MO,WE;COUNT=12"
-  rrule           String
-  /// TZID used when expanding the rule, e.g. "America/Sao_Paulo"
-  timezone        String   @default("America/Sao_Paulo")
-  /// ISO datetime of the first occurrence (DTSTART)
-  dtstart         DateTime
-  durationMinutes Int
-  type            String // "In-Person" | "Online"
-  category        String // "Workout" | "Check-in" | "Evaluation"
-  notes           String?
-  linkedWorkoutId String?
-
-  clientId String
-  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  userId   String
-  user     User   @relation(fields: [userId], references: [id])
-
-  exceptions SessionException[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([clientId])
-}
-
-model SessionException {
-  id String @id @default(uuid())
-
-  /// The computed start time this exception replaces
-  originalStartTime DateTime
-
-  /// true = this occurrence is cancelled (soft-delete)
-  cancelled Boolean @default(false)
-
-  /// Overrides (only relevant when cancelled = false)
-  newStartTime    DateTime?
-  durationMinutes Int?
-  notes           String?
-  completed       Boolean   @default(false)
-
-  recurringEventId String
-  recurringEvent   RecurringEvent @relation(fields: [recurringEventId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([recurringEventId, originalStartTime])
-  @@index([recurringEventId])
-}
-
-model AvailabilityBlock {
-  id       String   @id @default(uuid())
-  title    String // "Almoço", "Férias"
-  rrule    String? // null = one-off, else RFC 5545
-  timezone String   @default("America/Sao_Paulo")
-  dtstart  DateTime
-  dtend    DateTime // dtstart+dtend define the block window
-  notes    String?
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([userId, dtstart])
-}
-
-model ManualPayment {
-  id          String   @id @default(uuid())
-  clientId    String
-  userId      String
-  paymentType String // MANUAL_PIX, MANUAL_CASH, MANUAL_CARD
-  validUntil  DateTime
-  notes       String?
-  amount      Float?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id])
-
-  @@index([clientId])
-  @@index([userId])
-}
-
-model Anamnesis {
-  id                 String   @id @default(uuid())
-  clientId           String
-  userId             String
-  isCurrent          Boolean  @default(true)
-  token              String?  @unique
-  tokenUsed          Boolean  @default(false)
-  medicalHistory     String?
-  injuriesAndPain    String?
-  routineAndSchedule String?
-  fitnessGoals       String?
-  experienceLevel    String?
-  parqAnswers        Json?
-  frontPhotoUrl      String?
-  backPhotoUrl       String?
-  sidePhotoUrl       String?
-  weightKg           Float?
-  measurements       Json?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id])
-
-  @@index([clientId])
-  @@index([userId])
-}
-
-model Exercise {
-  id           String   @id @default(uuid())
-  name         String
-  bodyPart     String
-  targetMuscle String?
-  equipment    String
-  gifUrl       String?
-  videoUrl     String?
-  isCustom     Boolean  @default(false)
-  userId       String?
-  tenantId     String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  user             User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
-  tenant           Tenant?           @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-  workoutExercises WorkoutExercise[]
-
-  @@index([userId])
-  @@index([tenantId])
-  @@index([bodyPart])
-  @@index([equipment])
-}
-
-model WorkoutSheet {
-  id        String    @id @default(uuid())
-  name      String
-  expiresAt DateTime?
-  active    Boolean   @default(true)
-  clientId  String
-  userId    String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  client   Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  user     User               @relation(fields: [userId], references: [id])
-  workouts WorkoutSheetItem[]
-
-  @@index([clientId])
-  @@index([userId])
-}
-
-model WorkoutSheetItem {
-  id         String   @id @default(uuid())
-  sheetId    String
-  letter     String
-  name       String
-  orderIndex Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  blocks   WorkoutBlock[]
-  sheet    WorkoutSheet   @relation(fields: [sheetId], references: [id], onDelete: Cascade)
-  sessions Session[]
-
-  @@index([sheetId])
-}
-
-model WorkoutBlock {
-  id              String   @id @default(uuid())
-  workoutId       String
-  type            String   @default("REGULAR") // REGULAR, BISET, TRISET
-  orderIndex      Int      @default(0)
-  restTimeSeconds Int      @default(60)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  exercises WorkoutExercise[]
-  workout   WorkoutSheetItem  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
-
-  @@index([workoutId])
-}
-
-model WorkoutExercise {
-  id              String   @id @default(uuid())
-  blockId         String
-  exerciseId      String?
-  exerciseName    String
-  gifUrl          String?
-  sets            Int      @default(3)
-  reps            String   @default("10-12")
-  suggestedLoadKg Float?
-  executionNotes  String?
-  orderIndex      Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  block    WorkoutBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
-  exercise Exercise?    @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
-
-  @@index([blockId])
-  @@index([exerciseId])
-}
-
-model WorkoutTemplate {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  structure   Json
-  userId      String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@index([userId])
-}
-
-model StudentSession {
-  id              String   @id @default(uuid())
-  clientId        String
-  workoutId       String?
-  workoutName     String?
-  durationSeconds Int
-  completedAt     DateTime @default(now())
-  loads           Json?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  @@index([clientId])
-  @@index([completedAt])
-  @@index([workoutId])
-}
-
-model NotificationLog {
-  id             String   @id @default(uuid())
-  tenantId       String?
-  recipientPhone String
-  templateType   String
-  status         String // SENT, QUEUED, FAILED
-  channel        String   @default("WHATSAPP") // WHATSAPP, EMAIL
-  error          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-
-  @@index([tenantId])
-  @@index([createdAt])
-  @@index([status])
-}
-
+/// Owner module: identity.
 model PasswordResetToken {
   id        String   @id @default(uuid())
   token     String   @unique
@@ -525,4 +135,267 @@ model PasswordResetToken {
 
   @@index([token])
   @@index([userId])
+}
+
+/// Student or lead. Never hard-deleted by the API: `deletedAt` hides it.
+/// Owner module: crm.
+model Client {
+  id                  String         @id @default(uuid())
+  name                String
+  email               String
+  phone               String
+  status              ClientStatus   @default(ACTIVE)
+  modality            ClientModality @default(PRESENCIAL)
+  goal                String?
+  avatar              String?
+  notes               String?
+  dateOfBirth         DateTime?
+  checkInFreq         String?
+  medicalHistory      Json?
+  notificationEnabled Boolean        @default(true)
+  /// Soft delete marker. null = visible.
+  deletedAt           DateTime?
+
+  // Subscription and billing
+  planId             String?
+  plan               Plan?               @relation(fields: [planId], references: [id], onDelete: SetNull)
+  subscriptionStatus SubscriptionStatus?
+  currentPeriodEnd   DateTime?
+  gatewayCustomerId  String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payments         Payment[]
+  events           Event[]
+  assessments      Assessment[]
+  workoutSheets    WorkoutSheet[]
+  studentSessions  StudentSession[]
+  notificationLogs NotificationLog[]
+
+  /// E-mails are unique per trainer. Covers soft-deleted rows on purpose (lead resurrection).
+  @@unique([email, userId])
+  @@index([userId])
+  @@index([status])
+  @@index([planId])
+}
+
+/// Owner module: crm.
+model Plan {
+  id              String   @id @default(uuid())
+  type            String // 'PRESENCIAL' | 'CONSULTORIA'
+  name            String
+  sessionsPerWeek Int
+  durationMinutes Int?
+  price           Float
+  active          Boolean  @default(true)
+  /// PlanFeatureKey values (src/common/types/plan-features.ts)
+  features        String[] @default([])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clients Client[]
+
+  @@index([userId])
+}
+
+/// Owner module: crm.
+model Payment {
+  id         String          @id @default(uuid())
+  provider   PaymentProvider @default(MANUAL)
+  status     PaymentStatus   @default(PENDING)
+  amount     Float
+  externalId String?
+  date       DateTime        @default(now())
+  /// How a MANUAL payment was received: 'PIX' | 'CASH' | 'CARD' (was ManualPayment.paymentType).
+  method     String?
+  /// Subscription period this payment covers up to (was ManualPayment.validUntil).
+  periodEnd  DateTime?
+  notes      String?
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([userId])
+}
+
+/// A client's sheet (clientId set) or a reusable template (isTemplate, clientId null).
+/// Owner module: workouts.
+model WorkoutSheet {
+  id         String    @id @default(uuid())
+  name       String
+  expiresAt  DateTime?
+  active     Boolean   @default(true)
+  isTemplate Boolean   @default(false)
+  /// WorkoutSheetStructure document (src/common/types/workout-structure.ts)
+  structure  Json
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events Event[]
+
+  @@index([clientId])
+  @@index([userId])
+}
+
+/// Hybrid catalogue: userId null = global (Vivi), otherwise private to the trainer.
+/// Owner module: workouts.
+model Exercise {
+  id           String  @id @default(uuid())
+  name         String
+  bodyPart     String
+  targetMuscle String?
+  equipment    String
+  gifUrl       String?
+  videoUrl     String?
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([bodyPart])
+}
+
+/// A workout the student finished in the portal.
+/// Owner module: workouts.
+model StudentSession {
+  id              String   @id @default(uuid())
+  workoutName     String?
+  durationSeconds Int
+  completedAt     DateTime @default(now())
+  /// ExecutionData document (src/common/types/execution-data.ts)
+  executionData   Json
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([completedAt])
+}
+
+/// Unified calendar row.
+///   one-off session : type SESSION, rrule null, parentEventId null
+///   series master   : type SESSION, rrule set,  parentEventId null
+///   exception       : type SESSION, rrule null, parentEventId + originalStartTime set
+///                     (status CANCELLED = occurrence removed, COMPLETED = occurrence done,
+///                      SCHEDULED = occurrence edited/moved)
+///   block           : type BLOCK, clientId null, rrule optional; ends at date + durationMinutes
+/// Owner module: calendar.
+model Event {
+  id              String      @id @default(uuid())
+  type            EventType
+  title           String?
+  date            DateTime
+  durationMinutes Int
+  status          EventStatus @default(SCHEDULED)
+  rrule           String?
+  timezone        String      @default("America/Sao_Paulo")
+  notes           String?
+  /// SESSION only: 'In-Person' | 'Online' (was Session.type)
+  sessionType     String?
+  /// SESSION only: 'Workout' | 'Check-in' | 'Evaluation' (was Session.category)
+  category        String?
+
+  /// Exception -> series master. Deleting the master deletes its exceptions.
+  parentEventId     String?
+  parent            Event?    @relation("EventExceptions", fields: [parentEventId], references: [id], onDelete: Cascade)
+  exceptions        Event[]   @relation("EventExceptions")
+  /// The RRULE-computed start this exception replaces. Set iff parentEventId is set.
+  originalStartTime DateTime?
+
+  workoutSheetId   String?
+  workoutSheet     WorkoutSheet? @relation(fields: [workoutSheetId], references: [id], onDelete: SetNull)
+  /// WorkoutItem.id inside WorkoutSheet.structure
+  workoutSegmentId String?
+
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([parentEventId, originalStartTime])
+  @@index([userId])
+  @@index([clientId])
+  @@index([userId, date])
+  @@index([workoutSheetId])
+}
+
+/// Anamnesis (filled by the student through a magic link) or physical evaluation
+/// (filled by the trainer). Owner module: health.
+model Assessment {
+  id             String         @id @default(uuid())
+  type           AssessmentType
+  /// AnamnesisData | PhysicalEvaluationData (src/common/types/assessment-data.ts)
+  data           Json
+  /// Evaluation date (PHYSICAL_EVALUATION) or submission time (ANAMNESIS).
+  date           DateTime       @default(now())
+  magicToken     String?        @unique
+  tokenExpiresAt DateTime?
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([userId])
+  @@index([clientId, type, date])
+}
+
+/// Audit trail of outbound messages. One row per finished job; nothing is queued here.
+/// Owner module: messaging.
+model NotificationLog {
+  id             String  @id @default(uuid())
+  recipientPhone String
+  templateType   String
+  status         String // 'SENT' | 'FAILED' | 'CANCELLED'
+  channel        String  @default("WHATSAPP") // 'WHATSAPP' | 'EMAIL'
+  error          String?
+  /// BullMQ job id = idempotency key of the notification. One log row per job.
+  jobId          String? @unique
+
+  /// Recipient, when the message is addressed to a client (feeds GET /clients/:id/messages).
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([clientId])
+  @@index([createdAt])
+  @@index([status])
 }
