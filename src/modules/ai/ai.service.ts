@@ -1,10 +1,18 @@
 import {
+  BadGatewayException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { GoogleGenAI, Type } from "@google/genai";
+import { USER_DIRECTORY, UserDirectory } from "../../common/ports";
+import {
+  AiClientDto,
+  AiEvaluationDto,
+  AiMedicalHistoryDto,
+} from "./dto/ai-context.dto";
 import { GenerateWorkoutPlanDto } from "./dto/generate-workout-plan.dto";
 import { GenerateWorkoutInsightsDto } from "./dto/generate-workout-insights.dto";
 
@@ -13,104 +21,118 @@ Priorize a segurança do aluno acima de tudo. Respeite limitações físicas e c
 Sugira progressões graduais e sempre inclua aquecimento e volta à calma.
 Comunique-se de forma clara e profissional em português brasileiro.`;
 
-@Injectable()
-export class AiService {
-  private readonly logger = new Logger(AiService.name);
+const MODEL = "gemini-3-pro-preview";
+/** The only text a caller sees when the provider fails; details go to the log. */
+export const AI_PROVIDER_FAILURE_MESSAGE = "AI provider request failed";
 
-  constructor(private readonly configService: ConfigService) {}
+const WORKOUT_PLAN_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    title: { type: Type.STRING },
+    description: { type: Type.STRING },
+    exercises: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          sets: { type: Type.NUMBER },
+          reps: { type: Type.STRING },
+          notes: { type: Type.STRING },
+        },
+        propertyOrdering: ["name", "sets", "reps", "notes"],
+      },
+    },
+    tags: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+    },
+  },
+};
 
-  private getAiClient(): GoogleGenAI {
-    const apiKey =
-      this.configService.get<string>("GEMINI_API_KEY") ||
-      this.configService.get<string>("VITE_API_GMKEY") ||
-      process.env.GEMINI_API_KEY;
+const WORKOUT_INSIGHTS_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    insights: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          suggestion: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              sets: { type: Type.NUMBER },
+              reps: { type: Type.STRING },
+              notes: { type: Type.STRING },
+            },
+            required: ["name", "sets", "reps"],
+          },
+          reason: { type: Type.STRING },
+        },
+        required: ["suggestion", "reason"],
+      },
+    },
+  },
+  required: ["insights"],
+};
 
-    if (!apiKey) {
-      this.logger.error("GEMINI_API_KEY is not configured on the backend.");
-      throw new InternalServerErrorException(
-        "Gemini API key is not configured on backend server.",
-      );
-    }
+function ageOf(client?: AiClientDto): number | string {
+  return client?.dateOfBirth
+    ? new Date().getFullYear() - new Date(client.dateOfBirth).getFullYear()
+    : "N/A";
+}
 
-    return new GoogleGenAI({ apiKey });
-  }
+function describeMedicalHistory(history?: AiMedicalHistoryDto): string {
+  if (!history) return "Nenhum histórico médico registrado.";
+  const parts = [
+    history.objective?.length && `Objetivos: ${history.objective.join(", ")}`,
+    history.injuries && `Lesões: ${history.injuries}`,
+    history.surgeries && `Cirurgias: ${history.surgeries}`,
+    history.medications && `Medicamentos: ${history.medications}`,
+    history.hasHeartDisease && "Doença cardíaca: Sim",
+    history.smoker && "Fumante: Sim",
+    history.drinker && "Consome álcool: Sim",
+    history.observations && `Observações: ${history.observations}`,
+  ].filter((part): part is string => typeof part === "string");
+  return parts.length > 0
+    ? parts.join("\n      ")
+    : "Nenhum histórico médico registrado.";
+}
 
-  private buildMedicalHistoryContext(medicalHistory?: any): string {
-    if (!medicalHistory) return "Nenhum histórico médico registrado.";
-
-    const parts: string[] = [];
-
-    if (medicalHistory.objective?.length) {
-      parts.push(`Objetivos: ${medicalHistory.objective.join(", ")}`);
-    }
-    if (medicalHistory.injuries) {
-      parts.push(`Lesões: ${medicalHistory.injuries}`);
-    }
-    if (medicalHistory.surgeries) {
-      parts.push(`Cirurgias: ${medicalHistory.surgeries}`);
-    }
-    if (medicalHistory.medications) {
-      parts.push(`Medicamentos: ${medicalHistory.medications}`);
-    }
-    if (medicalHistory.hasHeartDisease) {
-      parts.push("Doença cardíaca: Sim");
-    }
-    if (medicalHistory.smoker) {
-      parts.push("Fumante: Sim");
-    }
-    if (medicalHistory.drinker) {
-      parts.push("Consome álcool: Sim");
-    }
-    if (medicalHistory.observations) {
-      parts.push(`Observações: ${medicalHistory.observations}`);
-    }
-
-    return parts.length > 0
-      ? parts.join("\n      ")
-      : "Nenhum histórico médico registrado.";
-  }
-
-  async generateWorkoutPlan(params: GenerateWorkoutPlanDto) {
-    const ai = this.getAiClient();
-    const personaBlock = params.customInstructions || DEFAULT_PERSONA_PROMPT;
-
-    let clientContextBlock = "";
-    if (params.client) {
-      const age = params.client.dateOfBirth
-        ? new Date().getFullYear() -
-          new Date(params.client.dateOfBirth).getFullYear()
-        : "N/A";
-      const medicalContext = this.buildMedicalHistoryContext(
-        params.client.medicalHistory,
-      );
-
-      clientContextBlock = `
+function clientBlock(client: AiClientDto | undefined, goal: string): string {
+  if (!client) return "";
+  return `
         CLIENT PROFILE:
-        - Name: ${params.client.name}
-        - Age: ${age}
-        - Goal: ${params.client.goal || params.goal}
-        - Notes: ${params.client.notes || "None"}
+        - Name: ${client.name}
+        - Age: ${ageOf(client)}
+        - Goal: ${client.goal || goal}
+        - Notes: ${client.notes || "None"}
         - Medical History:
-        ${medicalContext}
+        ${describeMedicalHistory(client.medicalHistory)}
       `;
-    }
+}
 
-    let evaluationBlock = "";
-    if (params.latestEvaluation) {
-      evaluationBlock = `
+function evaluationBlock(evaluation?: AiEvaluationDto): string {
+  if (!evaluation) return "";
+  return `
         LATEST EVALUATION:
-        - Weight: ${params.latestEvaluation.weight} kg
-        - Body Fat: ${params.latestEvaluation.bodyFatPercentage}%
-        - Notes: ${params.latestEvaluation.notes || "None"}
+        - Weight: ${evaluation.weight} kg
+        - Body Fat: ${evaluation.bodyFatPercentage}%
+        - Notes: ${evaluation.notes || "None"}
       `;
-    }
+}
 
-    const prompt = `
+function workoutPlanPrompt(
+  persona: string,
+  params: GenerateWorkoutPlanDto,
+): string {
+  return `
       TRAINER INSTRUCTIONS:
-      ${personaBlock}
+      ${persona}
 
-      ${clientContextBlock}
-      ${evaluationBlock}
+      ${clientBlock(params.client, params.goal)}
+      ${evaluationBlock(params.latestEvaluation)}
 
       WORKOUT PARAMETERS:
       - Client Name: ${params.clientName}
@@ -121,86 +143,34 @@ export class AiService {
 
       Please provide a structured response with a title, description, and a list of exercises for a single representative session.
     `;
+}
 
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-pro-preview",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              description: { type: Type.STRING },
-              exercises: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    sets: { type: Type.NUMBER },
-                    reps: { type: Type.STRING },
-                    notes: { type: Type.STRING },
-                  },
-                  propertyOrdering: ["name", "sets", "reps", "notes"],
-                },
-              },
-              tags: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-              },
-            },
-          },
-        },
-      });
-
-      const jsonString = response.text ? response.text.trim() : undefined;
-      if (!jsonString) {
-        throw new InternalServerErrorException(
-          "Received an empty response from Gemini AI.",
-        );
-      }
-      return JSON.parse(jsonString);
-    } catch (error: any) {
-      const err = error as Error;
-      this.logger.error(
-        `Error generating workout plan: ${err.message}`,
-        err.stack,
-      );
-      if (error instanceof InternalServerErrorException) {
-        throw error;
-      }
-      throw new InternalServerErrorException(
-        `Error generating workout plan: ${err.message}`,
-      );
-    }
-  }
-
-  async generateWorkoutInsights(params: GenerateWorkoutInsightsDto) {
-    const ai = this.getAiClient();
-    const age = params.client?.dateOfBirth
-      ? new Date().getFullYear() -
-        new Date(params.client.dateOfBirth).getFullYear()
-      : "N/A";
-    const personaBlock = params.customInstructions || DEFAULT_PERSONA_PROMPT;
-    const medicalContext = this.buildMedicalHistoryContext(
-      params.client?.medicalHistory,
-    );
-
-    const prompt = `
+function workoutInsightsPrompt(
+  persona: string,
+  params: GenerateWorkoutInsightsDto,
+): string {
+  const pastPlans =
+    params.archivedPlans.length > 0
+      ? params.archivedPlans
+          .map(
+            (plan) =>
+              `- ${plan.title ?? "Untitled"}: ${plan.description ?? ""}`,
+          )
+          .join("\n")
+      : "No past plans available.";
+  return `
         TRAINER INSTRUCTIONS:
-        ${personaBlock}
+        ${persona}
 
         Your task is to provide actionable suggestions for a new workout plan based on the client's detailed profile.
 
         CLIENT PROFILE:
-        - Name: ${params.client?.name}
-        - Age: ${age}
-        - Primary Goal: ${params.client?.goal}
-        - Notes from Trainer: ${params.client?.notes || "None"}
+        - Name: ${params.client.name}
+        - Age: ${ageOf(params.client)}
+        - Primary Goal: ${params.client.goal}
+        - Notes from Trainer: ${params.client.notes || "None"}
         - Medical History:
-        ${medicalContext}
+        ${describeMedicalHistory(params.client.medicalHistory)}
 
         LATEST EVALUATION DATA (if available):
         - Weight: ${params.latestEvaluation?.weight} kg
@@ -208,13 +178,7 @@ export class AiService {
         - Evaluation Notes: ${params.latestEvaluation?.notes || "None"}
 
         PAST WORKOUTS (Archived Plans):
-        ${
-          params.archivedPlans?.length > 0
-            ? params.archivedPlans
-                .map((p) => `- ${p.title}: ${p.description}`)
-                .join("\n")
-            : "No past plans available."
-        }
+        ${pastPlans}
 
         TASK:
         Based on all of the information above, provide 3-5 specific and actionable suggestions for the new workout plan. For each suggestion, provide the rationale ("reason") and a concrete exercise suggestion with name, sets, reps, and optional notes.
@@ -232,61 +196,115 @@ export class AiService {
           "reason": "This addresses the client's goal of marathon prep and helps strengthen the muscles around their sensitive right knee."
         }
       `;
+}
 
+/** `status=429 message=...` of whatever the SDK threw. */
+function describeProviderError(error: unknown): string {
+  const status = (error as { status?: unknown } | null)?.status ?? "unknown";
+  const message = error instanceof Error ? error.message : String(error);
+  return `status=${String(status)} message=${message}`;
+}
+
+@Injectable()
+export class AiService {
+  private readonly logger = new Logger(AiService.name);
+
+  constructor(
+    private readonly configService: ConfigService,
+    @Inject(USER_DIRECTORY) private readonly users: UserDirectory,
+  ) {}
+
+  /**
+   * @throws {NotFoundException} When the trainer does not exist
+   * @throws {BadGatewayException} When the provider fails or answers something unusable
+   */
+  async generateWorkoutPlan(userId: string, params: GenerateWorkoutPlanDto) {
+    const persona = await this.personaFor(userId, params.customInstructions);
+    return this.generateJson(
+      "workout plan",
+      workoutPlanPrompt(persona, params),
+      WORKOUT_PLAN_SCHEMA,
+    );
+  }
+
+  /**
+   * @throws {NotFoundException} When the trainer does not exist
+   * @throws {BadGatewayException} When the provider fails or answers something unusable
+   */
+  async generateWorkoutInsights(
+    userId: string,
+    params: GenerateWorkoutInsightsDto,
+  ) {
+    const persona = await this.personaFor(userId, params.customInstructions);
+    return this.generateJson(
+      "workout insights",
+      workoutInsightsPrompt(persona, params),
+      WORKOUT_INSIGHTS_SCHEMA,
+    );
+  }
+
+  /** Request instructions, else the trainer's stored `settings.aiInstructions`, else the default persona. */
+  private async personaFor(
+    userId: string,
+    customInstructions?: string,
+  ): Promise<string> {
+    if (customInstructions?.trim()) return customInstructions;
+    const { aiInstructions } = await this.users.getSettings(userId);
+    return aiInstructions?.trim() ? aiInstructions : DEFAULT_PERSONA_PROMPT;
+  }
+
+  private getAiClient(): GoogleGenAI {
+    const apiKey =
+      this.configService.get<string>("GEMINI_API_KEY") ||
+      this.configService.get<string>("VITE_API_GMKEY") ||
+      process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      this.logger.error("GEMINI_API_KEY is not configured on the backend.");
+      throw new InternalServerErrorException(
+        "Gemini API key is not configured on backend server.",
+      );
+    }
+
+    return new GoogleGenAI({ apiKey });
+  }
+
+  /**
+   * One provider call. Whatever goes wrong upstream is logged with its status and
+   * message and answered with a 502 that carries no provider text.
+   */
+  private async generateJson(
+    label: string,
+    prompt: string,
+    responseSchema: object,
+  ): Promise<unknown> {
+    const ai = this.getAiClient();
+    let text: string | undefined;
     try {
       const response = await ai.models.generateContent({
-        model: "gemini-3-pro-preview",
+        model: MODEL,
         contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              insights: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    suggestion: {
-                      type: Type.OBJECT,
-                      properties: {
-                        name: { type: Type.STRING },
-                        sets: { type: Type.NUMBER },
-                        reps: { type: Type.STRING },
-                        notes: { type: Type.STRING },
-                      },
-                      required: ["name", "sets", "reps"],
-                    },
-                    reason: { type: Type.STRING },
-                  },
-                  required: ["suggestion", "reason"],
-                },
-              },
-            },
-            required: ["insights"],
-          },
-        },
+        config: { responseMimeType: "application/json", responseSchema },
       });
-
-      const jsonString = response.text ? response.text.trim() : undefined;
-      if (!jsonString) {
-        throw new InternalServerErrorException(
-          "Received an empty response from Gemini AI.",
-        );
-      }
-      return JSON.parse(jsonString);
-    } catch (error: any) {
-      const err = error as Error;
+      text = response.text?.trim();
+    } catch (error) {
       this.logger.error(
-        `Error generating workout insights: ${err.message}`,
-        err.stack,
+        `Gemini request for ${label} failed: ${describeProviderError(error)}`,
+        error instanceof Error ? error.stack : undefined,
       );
-      if (error instanceof InternalServerErrorException) {
-        throw error;
-      }
-      throw new InternalServerErrorException(
-        `Error generating workout insights: ${err.message}`,
+      throw new BadGatewayException(AI_PROVIDER_FAILURE_MESSAGE);
+    }
+    if (!text) {
+      this.logger.error(`Gemini answered ${label} with an empty body`);
+      throw new BadGatewayException(AI_PROVIDER_FAILURE_MESSAGE);
+    }
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      this.logger.error(
+        `Gemini answered ${label} with text that is not JSON (${text.length} characters): ${(error as Error).message}`,
       );
+      throw new BadGatewayException(AI_PROVIDER_FAILURE_MESSAGE);
     }
   }
 }
