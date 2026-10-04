@@ -1,123 +1,123 @@
-import { Test, TestingModule } from "@nestjs/testing";
+import { RequestMethod } from "@nestjs/common";
+import { Test } from "@nestjs/testing";
+import { JwtAuthGuard } from "../../common/auth";
 import {
+  ClientMessagesController,
   MessagingController,
-  StudentMessagingController,
 } from "./messaging.controller";
-import { MessagingService } from "./messaging.service";
+import { MessagingHistoryService } from "./messaging-history.service";
+import { PendingNotificationsService } from "./pending-notifications.service";
 
-describe("MessagingControllers", () => {
-  let messagingController: MessagingController;
-  let studentMessagingController: StudentMessagingController;
+const routeOf = (controller: any, handler: string) => ({
+  prefix: Reflect.getMetadata("path", controller),
+  path: Reflect.getMetadata("path", controller.prototype[handler]),
+  method: Reflect.getMetadata("method", controller.prototype[handler]),
+  code: Reflect.getMetadata("__httpCode__", controller.prototype[handler]),
+});
 
-  const mockMessagingService = {
-    getTenantQueue: jest.fn().mockResolvedValue({ items: [], total: 0 }),
-    retryNotification: jest.fn().mockResolvedValue({ message: "Reenviado" }),
-    cancelNotification: jest.fn().mockResolvedValue({ message: "Cancelado" }),
-    processPendingQueue: jest.fn().mockResolvedValue({
-      processedCount: 2,
-      successCount: 2,
-      failedCount: 0,
-      delayedCount: 0,
-    }),
-    resendLink: jest.fn().mockResolvedValue({ status: "QUEUED" }),
-    getClientMessageHistory: jest.fn().mockResolvedValue([]),
-  };
+describe("Messaging controllers", () => {
+  let messaging: MessagingController;
+  let clientMessages: ClientMessagesController;
+  const history = { getLogs: jest.fn(), getClientMessages: jest.fn() };
+  const pending = { list: jest.fn(), flush: jest.fn(), cancel: jest.fn() };
 
   beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      controllers: [MessagingController, StudentMessagingController],
+    jest.clearAllMocks();
+    const moduleRef = await Test.createTestingModule({
+      controllers: [MessagingController, ClientMessagesController],
       providers: [
-        {
-          provide: MessagingService,
-          useValue: mockMessagingService,
-        },
+        { provide: MessagingHistoryService, useValue: history },
+        { provide: PendingNotificationsService, useValue: pending },
       ],
     }).compile();
-
-    messagingController = module.get<MessagingController>(MessagingController);
-    studentMessagingController = module.get<StudentMessagingController>(
-      StudentMessagingController,
-    );
-    jest.clearAllMocks();
+    messaging = moduleRef.get(MessagingController);
+    clientMessages = moduleRef.get(ClientMessagesController);
   });
 
-  it("should get tenant message queue", async () => {
-    const req = { user: { userId: "user-1" } } as any;
-    const query = { page: 1, limit: 10, status: "ALL" };
-    const result = await messagingController.getQueue(req, query);
+  it.each([MessagingController, ClientMessagesController])(
+    "%p requires a JWT",
+    (controller) => {
+      expect(Reflect.getMetadata("__guards__", controller)).toEqual([
+        JwtAuthGuard,
+      ]);
+    },
+  );
 
-    expect(mockMessagingService.getTenantQueue).toHaveBeenCalledWith(
-      "user-1",
-      query,
-    );
-    expect(result).toEqual({ items: [], total: 0 });
-  });
-
-  it("should process pending message queue", async () => {
-    const req = { user: { userId: "user-1" } } as any;
-    const result = await messagingController.processQueue(req);
-
-    expect(mockMessagingService.processPendingQueue).toHaveBeenCalledWith(
-      "user-1",
-      true,
-    );
-    expect(result).toEqual({
-      processedCount: 2,
-      successCount: 2,
-      failedCount: 0,
-      delayedCount: 0,
+  it("maps the contract routes", () => {
+    expect(routeOf(MessagingController, "getLogs")).toMatchObject({
+      prefix: "messaging",
+      path: "logs",
+      method: RequestMethod.GET,
+    });
+    expect(routeOf(MessagingController, "getPending")).toMatchObject({
+      path: "pending",
+      method: RequestMethod.GET,
+    });
+    expect(routeOf(MessagingController, "flushPending")).toMatchObject({
+      path: "pending/flush",
+      method: RequestMethod.POST,
+      code: 200,
+    });
+    expect(routeOf(MessagingController, "cancelPending")).toMatchObject({
+      path: "pending/:jobId",
+      method: RequestMethod.DELETE,
+      code: 200,
+    });
+    expect(
+      routeOf(ClientMessagesController, "getClientMessages"),
+    ).toMatchObject({
+      prefix: "clients/:id",
+      path: "messages",
+      method: RequestMethod.GET,
     });
   });
 
-  it("should retry message delivery", async () => {
-    const req = { user: { userId: "user-1" } } as any;
-    const result = await messagingController.retryMessage(req, "log-1");
+  it("GET /messaging/logs returns the caller's audit page", async () => {
+    const page = { items: [], total: 0 };
+    history.getLogs.mockResolvedValue(page);
+    const query = { page: 1, limit: 10, status: "ALL" };
 
-    expect(mockMessagingService.retryNotification).toHaveBeenCalledWith(
-      "user-1",
-      "log-1",
-    );
-    expect(result).toEqual({ message: "Reenviado" });
+    await expect(messaging.getLogs("user-1", query)).resolves.toBe(page);
+    expect(history.getLogs).toHaveBeenCalledWith("user-1", query);
   });
 
-  it("should cancel queued message", async () => {
-    const req = { user: { userId: "user-1" } } as any;
-    const result = await messagingController.cancelMessage(req, "log-1");
+  it("GET /messaging/pending lists the caller's pending jobs", async () => {
+    pending.list.mockResolvedValue([{ jobId: "j1" }]);
 
-    expect(mockMessagingService.cancelNotification).toHaveBeenCalledWith(
-      "user-1",
-      "log-1",
-    );
-    expect(result).toEqual({ message: "Cancelado" });
+    await expect(messaging.getPending("user-1")).resolves.toEqual([
+      { jobId: "j1" },
+    ]);
+    expect(pending.list).toHaveBeenCalledWith("user-1");
   });
 
-  it("should get client message history", async () => {
-    const req = { user: { userId: "user-1" } } as any;
-    const result = await studentMessagingController.getClientMessages(
-      req,
-      "client-1",
-    );
+  it("POST /messaging/pending/flush promotes the caller's delayed jobs", async () => {
+    pending.flush.mockResolvedValue({ promotedCount: 2, message: "ok" });
 
-    expect(mockMessagingService.getClientMessageHistory).toHaveBeenCalledWith(
-      "user-1",
-      "client-1",
-    );
-    expect(result).toEqual([]);
+    await expect(messaging.flushPending("user-1")).resolves.toEqual({
+      promotedCount: 2,
+      message: "ok",
+    });
+    expect(pending.flush).toHaveBeenCalledWith("user-1");
   });
 
-  it("should resend link", async () => {
-    const req = { user: { userId: "user-1" } } as any;
-    const result = await studentMessagingController.resendLink(
-      req,
-      "client-1",
-      { type: "ANAMNESIS" },
-    );
+  it("DELETE /messaging/pending/:jobId cancels the job", async () => {
+    pending.cancel.mockResolvedValue({ message: "Cancelado" });
 
-    expect(mockMessagingService.resendLink).toHaveBeenCalledWith(
+    await expect(messaging.cancelPending("user-1", "job-1")).resolves.toEqual({
+      message: "Cancelado",
+    });
+    expect(pending.cancel).toHaveBeenCalledWith("user-1", "job-1");
+  });
+
+  it("GET /clients/:id/messages returns the client's history", async () => {
+    history.getClientMessages.mockResolvedValue([]);
+
+    await expect(
+      clientMessages.getClientMessages("user-1", "client-1"),
+    ).resolves.toEqual([]);
+    expect(history.getClientMessages).toHaveBeenCalledWith(
       "user-1",
       "client-1",
-      "ANAMNESIS",
     );
-    expect(result).toEqual({ status: "QUEUED" });
   });
 });

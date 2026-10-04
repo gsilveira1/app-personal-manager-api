@@ -1,84 +1,65 @@
 import {
   Controller,
-  Get,
-  Post,
   Delete,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-  Request,
+  Get,
   HttpCode,
   HttpStatus,
+  Param,
+  Post,
+  Query,
+  UseGuards,
 } from "@nestjs/common";
-import { AuthGuard } from "@nestjs/passport";
-import { MessagingService } from "./messaging.service";
-import { ResendLinkDto } from "./dto/messaging.dto";
-import { QueueQueryDto } from "./dto/queue-query.dto";
-import { RequestWithUser } from "../../types/global";
+import { CurrentUserId, JwtAuthGuard } from "../../common/auth";
+import { LogsQueryDto } from "./dto/logs-query.dto";
+import { MessagingHistoryService } from "./messaging-history.service";
+import { PendingNotificationsService } from "./pending-notifications.service";
 
-@UseGuards(AuthGuard("jwt"))
+/** Endpoints 80–83: audit trail and pending jobs of the authenticated trainer. */
+@UseGuards(JwtAuthGuard)
 @Controller("messaging")
 export class MessagingController {
-  constructor(private readonly messagingService: MessagingService) {}
+  constructor(
+    private readonly history: MessagingHistoryService,
+    private readonly pending: PendingNotificationsService,
+  ) {}
 
-  @Get("queue")
-  getQueue(@Request() req: RequestWithUser, @Query() query: QueueQueryDto) {
-    return this.messagingService.getTenantQueue(req.user.userId, query);
+  @Get("logs")
+  getLogs(@CurrentUserId() userId: string, @Query() query: LogsQueryDto) {
+    return this.history.getLogs(userId, query);
   }
 
-  @Post("queue/process")
+  @Get("pending")
+  getPending(@CurrentUserId() userId: string) {
+    return this.pending.list(userId);
+  }
+
+  @Post("pending/flush")
   @HttpCode(HttpStatus.OK)
-  processQueue(
-    @Request() req: RequestWithUser,
-    @Body() body?: { force?: boolean },
+  flushPending(@CurrentUserId() userId: string) {
+    return this.pending.flush(userId);
+  }
+
+  @Delete("pending/:jobId")
+  @HttpCode(HttpStatus.OK)
+  cancelPending(
+    @CurrentUserId() userId: string,
+    @Param("jobId") jobId: string,
   ) {
-    return this.messagingService.processPendingQueue(
-      req.user.userId,
-      body?.force ?? true,
-    );
-  }
-
-  @Post("queue/:id/retry")
-  @HttpCode(HttpStatus.OK)
-  retryMessage(@Request() req: RequestWithUser, @Param("id") logId: string) {
-    return this.messagingService.retryNotification(req.user.userId, logId);
-  }
-
-  @Delete("queue/:id")
-  @HttpCode(HttpStatus.OK)
-  cancelMessage(@Request() req: RequestWithUser, @Param("id") logId: string) {
-    return this.messagingService.cancelNotification(req.user.userId, logId);
+    return this.pending.cancel(userId, jobId);
   }
 }
 
-@UseGuards(AuthGuard("jwt"))
-@Controller("students/:id")
-export class StudentMessagingController {
-  constructor(private readonly messagingService: MessagingService) {}
-
-  @Post("resend-link")
-  @HttpCode(HttpStatus.OK)
-  resendLink(
-    @Request() req: RequestWithUser,
-    @Param("id") clientId: string,
-    @Body() dto: ResendLinkDto,
-  ) {
-    return this.messagingService.resendLink(
-      req.user.userId,
-      clientId,
-      dto.type,
-    );
-  }
+/** Endpoint 84: `GET /clients/:id/messages`. */
+@UseGuards(JwtAuthGuard)
+@Controller("clients/:id")
+export class ClientMessagesController {
+  constructor(private readonly history: MessagingHistoryService) {}
 
   @Get("messages")
   getClientMessages(
-    @Request() req: RequestWithUser,
+    @CurrentUserId() userId: string,
     @Param("id") clientId: string,
   ) {
-    return this.messagingService.getClientMessageHistory(
-      req.user.userId,
-      clientId,
-    );
+    return this.history.getClientMessages(userId, clientId);
   }
 }

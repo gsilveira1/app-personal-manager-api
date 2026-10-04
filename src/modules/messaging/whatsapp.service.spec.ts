@@ -1,48 +1,72 @@
-import { Test, TestingModule } from "@nestjs/testing";
+import { ConfigService } from "@nestjs/config";
+import {
+  InvalidRecipientError,
+  WhatsAppInstanceError,
+  WhatsAppNotConnectedError,
+  WhatsAppTransientError,
+} from "../../common/types";
+import {
+  EvolutionApiError,
+  EvolutionNotConfiguredError,
+} from "./evolution-api.errors";
 import { WhatsAppService } from "./whatsapp.service";
+
+const ENV: Record<string, string | undefined> = {
+  EVOLUTION_API_URL: "http://localhost:8080/",
+  EVOLUTION_API_KEY: "test_api_key",
+};
+
+function buildService(env = ENV) {
+  const config = { get: jest.fn((key: string) => env[key]) };
+  return new WhatsAppService(config as unknown as ConfigService);
+}
+
+function mockResponse(status: number, body: unknown) {
+  const text = typeof body === "string" ? body : JSON.stringify(body);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+    text: async () => text,
+  } as unknown as Response;
+}
+
+function mockFetch(status: number, body: unknown) {
+  return jest
+    .spyOn(global, "fetch")
+    .mockResolvedValueOnce(mockResponse(status, body));
+}
 
 describe("WhatsAppService", () => {
   let service: WhatsAppService;
-  const originalEnv = process.env;
 
-  beforeEach(async () => {
-    process.env = {
-      ...originalEnv,
-      EVOLUTION_API_URL: "http://localhost:8080",
-      EVOLUTION_API_KEY: "test_api_key",
-    };
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [WhatsAppService],
-    }).compile();
-
-    service = module.get<WhatsAppService>(WhatsAppService);
+  beforeEach(() => {
+    service = buildService();
   });
 
   afterEach(() => {
-    process.env = originalEnv;
     jest.restoreAllMocks();
   });
 
-  describe("cleanPhoneNumber (Phone Number Sanitizer)", () => {
-    it("should return empty string for null, undefined, or empty inputs", () => {
+  describe("cleanPhoneNumber", () => {
+    it("returns an empty string for null, undefined or empty input", () => {
       expect(service.cleanPhoneNumber("")).toBe("");
       expect(service.cleanPhoneNumber(null as any)).toBe("");
       expect(service.cleanPhoneNumber(undefined as any)).toBe("");
     });
 
-    it("should prepend '55' to 11-digit Brazilian mobile numbers with special characters", () => {
+    it("prepends 55 to 11-digit Brazilian mobile numbers", () => {
       expect(service.cleanPhoneNumber("(11) 98765-4321")).toBe("5511987654321");
       expect(service.cleanPhoneNumber("11 98765-4321")).toBe("5511987654321");
       expect(service.cleanPhoneNumber("11987654321")).toBe("5511987654321");
     });
 
-    it("should prepend '55' to 10-digit Brazilian landline numbers", () => {
+    it("prepends 55 to 10-digit Brazilian landline numbers", () => {
       expect(service.cleanPhoneNumber("(11) 3456-7890")).toBe("551134567890");
       expect(service.cleanPhoneNumber("1134567890")).toBe("551134567890");
     });
 
-    it("should preserve existing country code '55' for full 12 or 13 digit numbers", () => {
+    it("keeps an existing country code", () => {
       expect(service.cleanPhoneNumber("+55 (11) 98765-4321")).toBe(
         "5511987654321",
       );
@@ -50,281 +74,328 @@ describe("WhatsAppService", () => {
       expect(service.cleanPhoneNumber("+55 11 3456-7890")).toBe("551134567890");
     });
 
-    it("should preserve international numbers without alterations beyond stripping non-digits", () => {
+    it("only strips non-digits from international numbers", () => {
       expect(service.cleanPhoneNumber("+1 (555) 123-4567")).toBe("15551234567");
       expect(service.cleanPhoneNumber("+351 912 345 678")).toBe("351912345678");
     });
   });
 
-  describe("sendTextMessage (Evolution API Client)", () => {
-    it("should return error if instanceName is missing", async () => {
-      const result = await service.sendTextMessage(
-        "",
-        "+5511999998888",
-        "Olá!",
+  describe("sendTextMessage", () => {
+    const send = (phone = "+5511999998888", text = "Olá!") =>
+      service.sendTextMessage("user-abc12345", phone, text);
+
+    it("throws WhatsAppNotConnectedError when the instance name is empty", async () => {
+      const fetchSpy = jest.spyOn(global, "fetch");
+      await expect(
+        service.sendTextMessage("", "+5511999998888", "Olá!"),
+      ).rejects.toBeInstanceOf(WhatsAppNotConnectedError);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("throws InvalidRecipientError for a short or malformed phone", async () => {
+      const fetchSpy = jest.spyOn(global, "fetch");
+      await expect(send("123")).rejects.toThrow(InvalidRecipientError);
+      await expect(send("123")).rejects.toThrow("Número de telefone inválido");
+      await expect(send("")).rejects.toThrow(InvalidRecipientError);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("throws InvalidRecipientError for an empty text", async () => {
+      await expect(send("+5511999998888", "   ")).rejects.toThrow(
+        "não pode ser vazio",
       );
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("instance name is not configured");
     });
 
-    it("should return error if recipient phone is invalid or too short", async () => {
-      const result = await service.sendTextMessage("tenant-1", "123", "Olá!");
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Número de telefone inválido");
-    });
+    it("posts the cleaned number and trimmed text and returns the message id", async () => {
+      const fetchSpy = mockFetch(201, { key: { id: "EVOLUTION_MSG_12345" } });
 
-    it("should return error if text message is empty", async () => {
-      const result = await service.sendTextMessage(
-        "tenant-1",
-        "+5511999998888",
-        "   ",
-      );
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("não pode ser vazio");
-    });
-
-    it("should successfully send message when Evolution API returns 200/201", async () => {
-      const mockFetch = jest.spyOn(global, "fetch").mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          key: { id: "EVOLUTION_MSG_12345" },
-          status: "PENDING",
-        }),
-      } as any);
-
-      const result = await service.sendTextMessage(
-        "tenant-vivi-001",
+      const result = await send(
         "+55 (11) 99999-8888",
-        "Olá! Sua ficha de treinos está pronta.",
+        " Sua ficha está pronta. ",
       );
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        "http://localhost:8080/message/sendText/tenant-vivi-001",
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "http://localhost:8080/message/sendText/user-abc12345",
         expect.objectContaining({
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
             apikey: "test_api_key",
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             number: "5511999998888",
-            text: "Olá! Sua ficha de treinos está pronta.",
+            text: "Sua ficha está pronta.",
           }),
+          signal: expect.any(AbortSignal),
         }),
       );
-
-      expect(result.success).toBe(true);
-      expect(result.messageId).toBe("EVOLUTION_MSG_12345");
+      expect(result).toEqual({ messageId: "EVOLUTION_MSG_12345" });
     });
 
-    it("should handle Evolution API HTTP 404 when instance does not exist", async () => {
-      jest.spyOn(global, "fetch").mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        text: async () =>
-          JSON.stringify({
-            status: 404,
-            error: "Not Found",
-            response: {
-              message: ['The "tenant-vivi-001" instance does not exist'],
-            },
-          }),
-      } as any);
+    it.each([404, 401, 400])(
+      "throws WhatsAppInstanceError on HTTP %i",
+      async (status) => {
+        mockFetch(status, {
+          status,
+          response: {
+            message: ['The "user-abc12345" instance does not exist'],
+          },
+        });
 
-      const result = await service.sendTextMessage(
-        "tenant-vivi-001",
-        "+5511999998888",
-        "Test message",
-      );
+        const error = await send().catch((e) => e);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Evolution API HTTP 404");
-      expect(result.error).toContain(
-        'The "tenant-vivi-001" instance does not exist',
-      );
-    });
+        expect(error).toBeInstanceOf(WhatsAppInstanceError);
+        expect(error.httpStatus).toBe(status);
+        expect(error.retryable).toBe(false);
+        expect(error.message).toContain("instance does not exist");
+      },
+    );
 
-    it("should handle Evolution API HTTP failure response (400/500)", async () => {
-      jest.spyOn(global, "fetch").mockResolvedValueOnce({
-        ok: false,
-        status: 400,
-        text: async () =>
-          JSON.stringify({ error: "Instance not found or disconnected" }),
-      } as any);
+    it.each([429, 500, 503])(
+      "throws a retryable WhatsAppTransientError on HTTP %i",
+      async (status) => {
+        mockFetch(status, { error: "upstream unavailable" });
 
-      const result = await service.sendTextMessage(
-        "tenant-vivi-001",
-        "+5511999998888",
-        "Test message",
-      );
+        const error = await send().catch((e) => e);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Evolution API HTTP 400");
-      expect(result.error).toContain("Instance not found or disconnected");
-    });
+        expect(error).toBeInstanceOf(WhatsAppTransientError);
+        expect(error.retryable).toBe(true);
+        expect(error.toLogEntry()).toBe(
+          `WHATSAPP_TRANSIENT (HTTP ${status}): upstream unavailable`,
+        );
+      },
+    );
 
-    it("should handle network exception gracefully (Zero Silent Failures)", async () => {
+    it("throws WhatsAppTransientError on a network error", async () => {
       jest
         .spyOn(global, "fetch")
         .mockRejectedValueOnce(new Error("ECONNREFUSED"));
 
-      const result = await service.sendTextMessage(
-        "tenant-vivi-001",
-        "+5511999998888",
-        "Test message",
-      );
+      const error = await send().catch((e) => e);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain(
-        "Network error calling Evolution API: ECONNREFUSED",
-      );
+      expect(error).toBeInstanceOf(WhatsAppTransientError);
+      expect(error.httpStatus).toBeUndefined();
+      expect(error.message).toContain("ECONNREFUSED");
+    });
+
+    it.each(["AbortError", "TimeoutError"])(
+      "throws WhatsAppTransientError on %s",
+      async (name) => {
+        const timeout = Object.assign(new Error("aborted"), { name });
+        jest.spyOn(global, "fetch").mockRejectedValueOnce(timeout);
+
+        const error = await send().catch((e) => e);
+
+        expect(error).toBeInstanceOf(WhatsAppTransientError);
+        expect(error.message).toContain("timed out");
+      },
+    );
+
+    it("treats HTTP 400 with exists:false as an invalid recipient, not a dead instance", async () => {
+      mockFetch(400, {
+        status: 400,
+        response: {
+          message: [{ exists: false, number: "5511999998888" }],
+        },
+      });
+
+      const error = await send().catch((e) => e);
+
+      expect(error).toBeInstanceOf(InvalidRecipientError);
+      expect(error.httpStatus).toBe(400);
+    });
+
+    it("uses the raw body as the message when the provider does not answer JSON", async () => {
+      mockFetch(502, "<html>Bad Gateway</html>");
+
+      await expect(send()).rejects.toThrow("<html>Bad Gateway</html>");
+    });
+
+    it("throws EvolutionApiError for a status the contract does not classify", async () => {
+      mockFetch(403, { error: "Forbidden" });
+
+      const error = await send().catch((e) => e);
+
+      expect(error).toBeInstanceOf(EvolutionApiError);
+      expect(error.httpStatus).toBe(403);
+    });
+
+    it("throws EvolutionNotConfiguredError without URL or key", async () => {
+      const fetchSpy = jest.spyOn(global, "fetch");
+      service = buildService({ EVOLUTION_API_URL: "http://localhost:8080" });
+
+      await expect(send()).rejects.toBeInstanceOf(EvolutionNotConfiguredError);
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
   });
 
-  describe("createInstance (Evolution API Provisioning)", () => {
-    it("should return error if instanceName is empty", async () => {
-      const result = await service.createInstance("");
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("instance name is empty");
-    });
+  describe("ensureInstance", () => {
+    it("calls POST /instance/create", async () => {
+      const fetchSpy = mockFetch(201, { instance: { status: "created" } });
 
-    it("should call POST /instance/create and return success when Evolution API succeeds", async () => {
-      const mockFetch = jest.spyOn(global, "fetch").mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          instance: { instanceName: "tenant-vivi-001", status: "created" },
-        }),
-      } as any);
+      await service.ensureInstance("user-abc12345");
 
-      const result = await service.createInstance("tenant-vivi-001");
-      expect(mockFetch).toHaveBeenCalledWith(
+      expect(fetchSpy).toHaveBeenCalledWith(
         "http://localhost:8080/instance/create",
         expect.objectContaining({
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: "test_api_key",
-          },
           body: JSON.stringify({
-            instanceName: "tenant-vivi-001",
+            instanceName: "user-abc12345",
             qrcode: true,
             integration: "WHATSAPP-BAILEYS",
           }),
         }),
       );
-      expect(result.success).toBe(true);
-      expect(result.data.instance.instanceName).toBe("tenant-vivi-001");
     });
 
-    it("should handle error response when createInstance fails", async () => {
-      jest.spyOn(global, "fetch").mockResolvedValueOnce({
-        ok: false,
-        status: 409,
-        text: async () => JSON.stringify({ error: "Instance already exists" }),
-      } as any);
+    it.each([403, 409])(
+      "accepts HTTP %i 'already in use' as success",
+      async (status) => {
+        mockFetch(status, {
+          response: {
+            message: ['This name "user-abc12345" is already in use.'],
+          },
+        });
 
-      const result = await service.createInstance("tenant-vivi-001");
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Evolution API HTTP 409");
+        await expect(
+          service.ensureInstance("user-abc12345"),
+        ).resolves.toBeUndefined();
+      },
+    );
+
+    it("throws EvolutionApiError with the status on any other failure", async () => {
+      mockFetch(403, { error: "Forbidden" });
+
+      const error = await service
+        .ensureInstance("user-abc12345")
+        .catch((e) => e);
+
+      expect(error).toBeInstanceOf(EvolutionApiError);
+      expect(error.httpStatus).toBe(403);
+    });
+
+    it("throws EvolutionApiError without a status on a network error", async () => {
+      jest
+        .spyOn(global, "fetch")
+        .mockRejectedValueOnce(new Error("ECONNRESET"));
+
+      const error = await service
+        .ensureInstance("user-abc12345")
+        .catch((e) => e);
+
+      expect(error).toBeInstanceOf(EvolutionApiError);
+      expect(error.httpStatus).toBeUndefined();
+    });
+  });
+
+  describe("fetchQrCode", () => {
+    it("returns a data URL as is", async () => {
+      mockFetch(200, { base64: "data:image/png;base64,AAAA" });
+      await expect(service.fetchQrCode("user-abc12345")).resolves.toBe(
+        "data:image/png;base64,AAAA",
+      );
+    });
+
+    it("prefixes a bare base64 payload", async () => {
+      mockFetch(200, { base64: "AAAA" });
+      await expect(service.fetchQrCode("user-abc12345")).resolves.toBe(
+        "data:image/png;base64,AAAA",
+      );
+    });
+
+    it("renders a QR code from the pairing code", async () => {
+      mockFetch(200, { code: "2@pairing-code" });
+      await expect(service.fetchQrCode("user-abc12345")).resolves.toMatch(
+        /^data:image\/png;base64,/,
+      );
+    });
+
+    it("throws when the provider returns no QR code", async () => {
+      mockFetch(200, { instance: { state: "open" } });
+      await expect(service.fetchQrCode("user-abc12345")).rejects.toThrow(
+        "returned no QR code",
+      );
+    });
+
+    it("throws EvolutionApiError with the status on failure", async () => {
+      mockFetch(500, "boom");
+      const error = await service.fetchQrCode("user-abc12345").catch((e) => e);
+      expect(error).toBeInstanceOf(EvolutionApiError);
+      expect(error.httpStatus).toBe(500);
     });
   });
 
   describe("checkInstanceStatus", () => {
-    it("should return DISCONNECTED when instanceName is empty", async () => {
-      const result = await service.checkInstanceStatus("");
-      expect(result.status).toBe("DISCONNECTED");
+    it.each([
+      ["open", "CONNECTED"],
+      ["connected", "CONNECTED"],
+      ["connecting", "CONNECTING"],
+      ["close", "DISCONNECTED"],
+    ])("maps provider state %s to %s", async (state, expected) => {
+      mockFetch(200, { instance: { state } });
+      await expect(service.checkInstanceStatus("user-abc12345")).resolves.toBe(
+        expected,
+      );
     });
 
-    it("should return CONNECTED when Evolution API returns open state", async () => {
-      jest.spyOn(global, "fetch").mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ instance: { state: "open" } }),
-      } as any);
-
-      const result = await service.checkInstanceStatus("tenant-vivi-001");
-      expect(result.status).toBe("CONNECTED");
+    it("reports DISCONNECTED when the instance does not exist (404)", async () => {
+      mockFetch(404, "Not Found");
+      await expect(service.checkInstanceStatus("user-abc12345")).resolves.toBe(
+        "DISCONNECTED",
+      );
     });
 
-    it("should return DISCONNECTED when Evolution API returns close state or error", async () => {
-      jest.spyOn(global, "fetch").mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ instance: { state: "close" } }),
-      } as any);
-
-      const result = await service.checkInstanceStatus("tenant-vivi-001");
-      expect(result.status).toBe("DISCONNECTED");
-    });
-
-    it("should handle network error when checking instance status", async () => {
+    it("throws instead of guessing DISCONNECTED when the check fails", async () => {
       jest
         .spyOn(global, "fetch")
         .mockRejectedValueOnce(new Error("Connection timeout"));
+      await expect(
+        service.checkInstanceStatus("user-abc12345"),
+      ).rejects.toBeInstanceOf(EvolutionApiError);
 
-      const result = await service.checkInstanceStatus("tenant-vivi-001");
-      expect(result.status).toBe("DISCONNECTED");
-      expect(result.error).toBe("Connection timeout");
+      mockFetch(500, "boom");
+      await expect(
+        service.checkInstanceStatus("user-abc12345"),
+      ).rejects.toThrow("Evolution API HTTP 500");
     });
   });
 
   describe("disconnectInstance", () => {
-    it("should return error if instanceName is empty", async () => {
-      const result = await service.disconnectInstance("");
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("instance name is empty");
-    });
+    it("calls DELETE /instance/logout/{name}", async () => {
+      const fetchSpy = mockFetch(200, { status: "LOGGED_OUT" });
 
-    it("should successfully disconnect when Evolution API returns 200", async () => {
-      const mockFetch = jest.spyOn(global, "fetch").mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ status: "LOGGED_OUT" }),
-      } as any);
+      await service.disconnectInstance("user-abc12345");
 
-      const result = await service.disconnectInstance("tenant-vivi-001");
-      expect(mockFetch).toHaveBeenCalledWith(
-        "http://localhost:8080/instance/logout/tenant-vivi-001",
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "http://localhost:8080/instance/logout/user-abc12345",
         expect.objectContaining({
           method: "DELETE",
           headers: { apikey: "test_api_key" },
         }),
       );
-      expect(result.success).toBe(true);
     });
 
-    it("should handle 404 gracefully as successfully disconnected", async () => {
-      jest.spyOn(global, "fetch").mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        text: async () => "Not Found",
-      } as any);
-
-      const result = await service.disconnectInstance("tenant-vivi-001");
-      expect(result.success).toBe(true);
+    it("treats 404 as already disconnected", async () => {
+      mockFetch(404, "Not Found");
+      await expect(
+        service.disconnectInstance("user-abc12345"),
+      ).resolves.toBeUndefined();
     });
 
-    it("should handle failure response when logout returns 500", async () => {
-      jest.spyOn(global, "fetch").mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-        text: async () => "Internal Server Error",
-      } as any);
-
-      const result = await service.disconnectInstance("tenant-vivi-001");
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("Evolution API HTTP 500");
+    it("throws EvolutionApiError when logout returns 500", async () => {
+      mockFetch(500, "Internal Server Error");
+      await expect(service.disconnectInstance("user-abc12345")).rejects.toThrow(
+        "Evolution API HTTP 500",
+      );
     });
 
-    it("should handle network exception gracefully", async () => {
+    it("throws EvolutionApiError on a network error", async () => {
       jest
         .spyOn(global, "fetch")
         .mockRejectedValueOnce(new Error("Network timeout"));
-
-      const result = await service.disconnectInstance("tenant-vivi-001");
-      expect(result.success).toBe(false);
-      expect(result.error).toContain(
-        "Network error calling Evolution API logout",
-      );
+      await expect(
+        service.disconnectInstance("user-abc12345"),
+      ).rejects.toBeInstanceOf(EvolutionApiError);
     });
   });
 });
