@@ -1,55 +1,37 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
-import { PrismaModule } from "./prisma/prisma.module";
-import { SessionsModule } from "./sessions/sessions.module";
-import { ClientsModule } from "./clients/clients.module";
-import { PlansModule } from "./plans/plans.module";
-import { SettingsModule } from "./settings/settings.module";
-import { AuthModule } from "./auth/auth.module";
-import { UsersModule } from "./users/users.module";
-import { EvaluationsModule } from "./evaluations/evaluations.module";
-import { LeadsModule } from "./leads/leads.module";
-import { GcsModule } from "./gcs/gcs.module";
-import { AvailabilityBlocksModule } from "./availability-blocks/availability-blocks.module";
-import { SystemFeaturesModule } from "./system-features/system-features.module";
-import { AiModule } from "./ai/ai.module";
-import { StorageModule } from "./storage/storage.module";
-import { TenantsModule } from "./tenants/tenants.module";
-import { AnamnesisModule } from "./anamnesis/anamnesis.module";
-import { ExercisesModule } from "./exercises/exercises.module";
-import { WorkoutSheetsModule } from "./workout-sheets/workout-sheets.module";
-import { StudentPortalModule } from "./student-portal/student-portal.module";
-import { MessagingModule } from "./messaging/messaging.module";
-import { AdminModule } from "./admin/admin.module";
 
+import { AiModule } from "./ai/ai.module";
+import { CalendarModule } from "./calendar/calendar.module";
+import { CrmModule } from "./crm/crm.module";
+import { GcsModule } from "./gcs/gcs.module";
+import { HealthModule } from "./health/health.module";
+import { IdentityModule } from "./identity/identity.module";
+import { MessagingModule } from "./messaging/messaging.module";
+import { PrismaModule } from "./prisma/prisma.module";
+import { WorkoutsModule } from "./workouts/workouts.module";
+
+/**
+ * Composition root. Infrastructure first (config, Prisma and GCS are global), then
+ * the six domain modules of docs/api-contract-v2.md, section 3.
+ *
+ * Cross-module dependencies are resolved by each consumer importing the module
+ * that exports the port it injects (section 3.1 DAG); nothing is re-exported
+ * here. ClientDirectoryModule and MailerModule are imported by their consumers,
+ * and MessagingModule registers the BullMQ root itself.
+ */
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-    }),
-    AuthModule,
-    UsersModule,
+    ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
-    SessionsModule,
-    EvaluationsModule,
-    ClientsModule,
-    PlansModule,
-    SettingsModule,
-    LeadsModule,
     GcsModule,
-    AvailabilityBlocksModule,
-    SystemFeaturesModule,
     AiModule,
-    StorageModule,
-    TenantsModule,
-    AnamnesisModule,
-    ExercisesModule,
-    WorkoutSheetsModule,
-    StudentPortalModule,
+    IdentityModule,
     MessagingModule,
-    AdminModule,
+    WorkoutsModule,
+    HealthModule,
+    CrmModule,
+    CalendarModule,
   ],
-  controllers: [],
-  providers: [],
 })
 export class AppModule {}

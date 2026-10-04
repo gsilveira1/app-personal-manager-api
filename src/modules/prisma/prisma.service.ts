@@ -8,6 +8,9 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
+  /** Created here, so it is ended here: `$disconnect()` does not end a pool the adapter was handed. */
+  private readonly pool: Pool;
+
   constructor() {
     const connectionString = `${process.env.DATABASE_URL}`;
     const pool = new Pool({ connectionString });
@@ -21,6 +24,7 @@ export class PrismaService
           ? ["query", "info", "warn"]
           : ["error"],
     });
+    this.pool = pool;
   }
 
   async onModuleInit() {
@@ -29,5 +33,6 @@ export class PrismaService
 
   async onModuleDestroy() {
     await this.$disconnect();
+    await this.pool.end();
   }
 }

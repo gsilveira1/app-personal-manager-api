@@ -1,15 +1,10 @@
 import { NestFactory } from "@nestjs/core";
-import { ValidationPipe } from "@nestjs/common";
-import { json, urlencoded } from "express";
 
+import { configureApp } from "./app.setup";
 import { AppModule } from "./modules/app.module";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-
-  // Increase payload size limit to 10mb for avatar base64 uploads and large JSON bodies
-  app.use(json({ limit: "10mb" }));
-  app.use(urlencoded({ limit: "10mb", extended: true }));
 
   // ── Health check endpoint (must be registered BEFORE the global prefix) ──
   // Excluded from the /api prefix so fly.io can probe GET /health directly
@@ -18,25 +13,7 @@ async function bootstrap() {
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
-  app.setGlobalPrefix("api");
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-    }),
-  );
-
-  app.enableCors({
-    origin: true, // ['http://example.com', 'http://anotherdomain.com']
-    methods: "GET,PUT,POST,PATCH,DELETE",
-    credentials: false,
-    allowedHeaders: "Content-Type, Accept, Authorization",
-  });
+  configureApp(app);
 
   // Use PORT env var (set by fly.io) with local fallback; bind to 0.0.0.0 so fly-proxy can reach the app
   const port = process.env.PORT ?? 9090;
