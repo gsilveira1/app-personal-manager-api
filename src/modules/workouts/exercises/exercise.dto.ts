@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional } from "class-validator";
+import { IsNotEmpty, IsOptional, IsString } from "class-validator";
 
 export class CreateExerciseDto {
   @IsString()
@@ -38,4 +38,19 @@ export class ExerciseQueryDto {
   @IsString()
   @IsOptional()
   equipment?: string;
+}
+
+/** Contract 6.3: one row of the exercise catalogue. */
+export interface ExerciseView {
+  id: string;
+  name: string;
+  bodyPart: string;
+  targetMuscle: string | null;
+  equipment: string;
+  gifUrl: string | null;
+  videoUrl: string | null;
+  /** true for a trainer's private exercise, false for a global (seeded) one. */
+  isCustom: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
