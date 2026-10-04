@@ -40,7 +40,7 @@ describe("Pending notifications behind another tenant's backlog (e2e)", () => {
       clientId: null,
       recipientPhone: "+5553999990000",
       templateType: "WORKOUT_LINK",
-      params: { name: "Ana", link: "https://app.test/#/p/x?token=y" },
+      params: { name: "Ana", link: "https://app.test/p/x?token=y" },
       idempotencyKey,
     });
     return idempotencyKey;

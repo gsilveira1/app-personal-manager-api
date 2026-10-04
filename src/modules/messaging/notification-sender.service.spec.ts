@@ -32,7 +32,7 @@ describe("NotificationSenderService", () => {
     clientId: "client-1",
     recipientPhone: "+5511999998888",
     templateType: "WELCOME_ANAMNESIS",
-    params: { name: "Carlos", link: "https://app/#/anamnesis?token=abc" },
+    params: { name: "Carlos", link: "https://app/anamnesis?token=abc" },
     idempotencyKey: key,
   };
 
@@ -82,7 +82,7 @@ describe("NotificationSenderService", () => {
         recipientPhone: "+5511999998888",
         channel: "WHATSAPP",
         templateType: "WELCOME_ANAMNESIS",
-        params: { name: "Carlos", link: "https://app/#/anamnesis?token=abc" },
+        params: { name: "Carlos", link: "https://app/anamnesis?token=abc" },
         requestedAt: DAYTIME.toISOString(),
       },
       {

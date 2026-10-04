@@ -145,7 +145,7 @@ describe("Messaging queue and audit trail (e2e)", () => {
         error: null,
       });
       expect(sentBy(alice)).toHaveLength(1);
-      expect(sentBy(alice)[0].text).toContain("/#/anamnesis?token=");
+      expect(sentBy(alice)[0].text).toContain("/anamnesis?token=");
 
       // 1. Same idempotency key again: BullMQ still knows the job.
       const sender = e2e.app.get<NotificationSender>(NOTIFICATION_SENDER);

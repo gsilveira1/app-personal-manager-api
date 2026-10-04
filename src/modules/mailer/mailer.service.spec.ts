@@ -81,6 +81,11 @@ describe("MailerService", () => {
       expect(callArg.html).toContain("secret-reset-token-456");
       expect(callArg.html).toContain("60 minutos");
       expect(callArg.text).toContain("secret-reset-token-456");
+      // The web app uses path routes (BrowserRouter): no "/#/" in the link.
+      expect(callArg.text).toContain(
+        "/reset-password?token=secret-reset-token-456",
+      );
+      expect(callArg.text).not.toContain("/#/");
       expect(result).toEqual({ messageId: "mock-message-id-123" });
     });
 

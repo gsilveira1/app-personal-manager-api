@@ -27,7 +27,7 @@ const JOB_DATA: NotificationJobData = {
   recipientPhone: "+5511999998888",
   channel: "WHATSAPP",
   templateType: "WORKOUT_LINK",
-  params: { name: "Mariana", link: "https://app/#/p/vivi?token=abc" },
+  params: { name: "Mariana", link: "https://app/p/vivi?token=abc" },
   requestedAt: "2026-09-20T05:30:00.000Z",
 };
 
@@ -164,7 +164,7 @@ describe("NotificationProcessor", () => {
       expect(whatsapp.sendTextMessage).toHaveBeenCalledWith(
         "user-abc12345",
         "+5511999998888",
-        "Fala, Mariana! Sua nova ficha de treinos está pronta. Acesse aqui: https://app/#/p/vivi?token=abc.",
+        "Fala, Mariana! Sua nova ficha de treinos está pronta. Acesse aqui: https://app/p/vivi?token=abc.",
       );
       expect(rows).toEqual([
         {

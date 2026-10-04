@@ -63,7 +63,7 @@ export class MagicLinkService {
     );
     return {
       token,
-      url: `${this.frontendUrl()}/#/p/${trainer.slug}?token=${token}`,
+      url: `${this.frontendUrl()}/p/${trainer.slug}?token=${token}`,
     };
   }
 

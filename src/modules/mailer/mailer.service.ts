@@ -55,7 +55,7 @@ export class MailerService {
       process.env.FRONTEND_URL ||
       process.env.APP_CLIENT_URL ||
       "http://localhost:5173";
-    const resetUrl = `${baseUrl}/#/reset-password?token=${encodeURIComponent(token)}`;
+    const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
     // Everything interpolated into the HTML part is escaped; the text part is not HTML.
     const safeName = escapeHtml(name || "Personal");
     const safeUrl = escapeHtml(resetUrl);

@@ -134,7 +134,7 @@ export class AnamnesisService implements AnamnesisRequester {
         userId,
       },
     });
-    const link = `${frontendBaseUrl()}/#/anamnesis?token=${token}`;
+    const link = `${frontendBaseUrl()}/anamnesis?token=${token}`;
     const notification = options.notify
       ? await this.enqueueLink(userId, client, assessment.id, link)
       : null;

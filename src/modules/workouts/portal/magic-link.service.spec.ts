@@ -71,7 +71,7 @@ describe("MagicLinkService", () => {
       );
       expect(result).toEqual({
         token: "student-jwt-123",
-        url: "http://localhost:5173/#/p/viviana?token=student-jwt-123",
+        url: "http://localhost:5173/p/viviana?token=student-jwt-123",
       });
     });
 
@@ -81,9 +81,7 @@ describe("MagicLinkService", () => {
 
       const { url } = await service.generate("user-1", "client-1");
 
-      expect(url).toBe(
-        "https://app.vivi.com/#/p/viviana?token=student-jwt-123",
-      );
+      expect(url).toBe("https://app.vivi.com/p/viviana?token=student-jwt-123");
     });
 
     it("falls back to APP_CLIENT_URL", async () => {
@@ -92,7 +90,7 @@ describe("MagicLinkService", () => {
       const { url } = await service.generate("user-1", "client-1");
 
       expect(url).toBe(
-        "https://client.vivi.com/#/p/viviana?token=student-jwt-123",
+        "https://client.vivi.com/p/viviana?token=student-jwt-123",
       );
     });
 
@@ -119,7 +117,7 @@ describe("MagicLinkService", () => {
 
     it("enqueues WORKOUT_LINK with a key of client, active sheet and UTC minute", async () => {
       prisma.workoutSheet.findFirst.mockResolvedValue({ id: "sheet-1" });
-      const link = "http://localhost:5173/#/p/viviana?token=student-jwt-123";
+      const link = "http://localhost:5173/p/viviana?token=student-jwt-123";
 
       const result = await service.send("user-1", "client-1");
 

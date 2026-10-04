@@ -145,7 +145,7 @@ describe("AnamnesisService", () => {
       expect(result).toEqual({
         assessmentId: "anam-1",
         token: result.token,
-        link: `https://app.vivi.test/#/anamnesis?token=${result.token}`,
+        link: `https://app.vivi.test/anamnesis?token=${result.token}`,
         notification: null,
       });
       expect(notifications.enqueue).not.toHaveBeenCalled();
@@ -162,13 +162,13 @@ describe("AnamnesisService", () => {
       process.env.APP_CLIENT_URL = "https://client.vivi.test";
       const second = await service.createMagicLink(userId, clientId);
       expect(second.link).toBe(
-        `https://client.vivi.test/#/anamnesis?token=${second.token}`,
+        `https://client.vivi.test/anamnesis?token=${second.token}`,
       );
 
       delete process.env.APP_CLIENT_URL;
       const third = await service.createMagicLink(userId, clientId);
       expect(third.link).toBe(
-        `http://localhost:5173/#/anamnesis?token=${third.token}`,
+        `http://localhost:5173/anamnesis?token=${third.token}`,
       );
     });
 
@@ -227,7 +227,7 @@ describe("AnamnesisService", () => {
       expect(result).toEqual({
         message: expect.stringContaining("sucesso"),
         token: expect.stringMatching(/^[a-f0-9]{64}$/),
-        link: expect.stringContaining("/#/anamnesis?token="),
+        link: expect.stringContaining("/anamnesis?token="),
         notification: { status: "QUEUED", jobId: "job-1", scheduledDelayMs: 0 },
       });
     });
