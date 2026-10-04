@@ -5,7 +5,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password123}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-gym_management}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -47,10 +47,10 @@ services:
     restart: always
     environment:
       - SERVER_URL=http://localhost:${EVOLUTION_PORT:-8080}
-      - AUTHENTICATION_API_KEY=${AUTHENTICATION_API_KEY:-personalops_secret_token_123}
+      - AUTHENTICATION_API_KEY=${AUTHENTICATION_API_KEY:?AUTHENTICATION_API_KEY is required}
       - DATABASE_ENABLED=true
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_CONNECTION_URI=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password123}@postgres:5432/${POSTGRES_DB:-gym_management}?schema=evolution
+      - DATABASE_CONNECTION_URI=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-gym_management}?schema=evolution
       - DATABASE_CONNECTION_CLIENT_NAME=personalops_evolution
       - DATABASE_SAVE_DATA_INSTANCE=true
       - DATABASE_SAVE_DATA_NEW_MESSAGE=true
@@ -84,15 +84,16 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=9090
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password123}@postgres:5432/${POSTGRES_DB:-gym_management}?schema=public
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-gym_management}?schema=public
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET:-seu_segredo_aqui}
-      - TRAINER_USER_ID=${TRAINER_USER_ID:-}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - FRONTEND_URL=${FRONTEND_URL:-}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
       - EVOLUTION_API_URL=http://evolution-api:8080
-      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY:-personalops_secret_token_123}
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY:?EVOLUTION_API_KEY is required}
       - EMAIL_SMTP_HOST=mailpit
       - EMAIL_SMTP_PORT=1025
       - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}

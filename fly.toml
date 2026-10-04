@@ -9,7 +9,6 @@ primary_region = 'gru'
 [build]
 [deploy]
   release_command = 'npx prisma migrate deploy'
-  seed_command = 'ts-node -r dotenv/config prisma/seed.ts'
 
 [http_service]
   internal_port = 9090
