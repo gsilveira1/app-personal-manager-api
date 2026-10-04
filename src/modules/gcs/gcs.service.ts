@@ -1,4 +1,8 @@
-import { Injectable, Logger } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Storage } from "@google-cloud/storage";
 
@@ -19,7 +23,7 @@ export class GcsService {
     if (!this.privateKey.includes("-----BEGIN")) {
       this.logger.warn(
         "GCP_PRIVATE_KEY does not appear to be a valid PEM private key (missing -----BEGIN PRIVATE KEY-----). " +
-          "Using local dev upload fallback.",
+          "Outside production the local dev upload fallback is used; in production upload URLs answer 503.",
       );
     }
 
@@ -51,15 +55,12 @@ export class GcsService {
   ): Promise<{ uploadUrl: string; publicUrl: string }> {
     const publicUrl = `https://storage.googleapis.com/${this.bucketName}/${objectPath}`;
 
-    // If private key is missing valid PEM header (e.g. key ID or placeholder in dev), use mock fallback
     if (!this.privateKey.includes("-----BEGIN")) {
-      this.logger.warn(
-        `GCP_PRIVATE_KEY is not a valid PEM key. Using local dev upload fallback for ${objectPath}.`,
-      );
-      return {
-        uploadUrl: `mock-dev-upload://${objectPath}`,
+      return this.unavailable(
+        objectPath,
         publicUrl,
-      };
+        "GCP_PRIVATE_KEY is not a valid PEM key",
+      );
     }
 
     try {
@@ -79,14 +80,39 @@ export class GcsService {
       this.logger.log(`Generated signed upload URL for ${objectPath}`);
 
       return { uploadUrl, publicUrl };
-    } catch (error: any) {
-      this.logger.warn(
-        `Failed to generate GCS signed URL: ${error?.message || error}. Falling back to dev upload.`,
-      );
-      return {
-        uploadUrl: `mock-dev-upload://${objectPath}`,
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      return this.unavailable(
+        objectPath,
         publicUrl,
-      };
+        `GCS getSignedUrl failed: ${cause}`,
+      );
     }
+  }
+
+  /**
+   * Signing did not work. In production that is a 503 (a fake URL would make the
+   * upload look successful); elsewhere the mock upload URL keeps local setups
+   * without GCS credentials usable.
+   *
+   * @throws {ServiceUnavailableException} In production
+   */
+  private unavailable(
+    objectPath: string,
+    publicUrl: string,
+    cause: string,
+  ): { uploadUrl: string; publicUrl: string } {
+    if (process.env.NODE_ENV === "production") {
+      this.logger.error(
+        `Cannot sign an upload URL for ${objectPath}: ${cause}`,
+      );
+      throw new ServiceUnavailableException(
+        "File upload is temporarily unavailable",
+      );
+    }
+    this.logger.warn(
+      `${cause}. Using the local dev upload fallback for ${objectPath}.`,
+    );
+    return { uploadUrl: `mock-dev-upload://${objectPath}`, publicUrl };
   }
 }

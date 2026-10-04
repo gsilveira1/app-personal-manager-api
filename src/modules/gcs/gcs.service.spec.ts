@@ -1,3 +1,4 @@
+import { Logger, ServiceUnavailableException } from "@nestjs/common";
 import { Test, TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
 
@@ -94,6 +95,109 @@ describe("GcsService", () => {
       const fifteenMinMs = 15 * 60 * 1000;
       expect(call.expires).toBeGreaterThanOrEqual(before + fifteenMinMs);
       expect(call.expires).toBeLessThanOrEqual(after + fifteenMinMs);
+    });
+  });
+
+  describe("signing failures (review M6)", () => {
+    const originalEnv = process.env.NODE_ENV;
+    let logError: jest.SpyInstance;
+    let logWarn: jest.SpyInstance;
+
+    const build = async (config: Record<string, string>) => {
+      const module = await Test.createTestingModule({
+        providers: [
+          GcsService,
+          {
+            provide: ConfigService,
+            useValue: { getOrThrow: (key: string) => config[key] },
+          },
+        ],
+      }).compile();
+      return module.get(GcsService);
+    };
+    const badKeyConfig = { ...mockConfig, GCP_PRIVATE_KEY: "not-a-pem-key" };
+
+    beforeEach(() => {
+      logError = jest.spyOn(Logger.prototype, "error").mockImplementation();
+      logWarn = jest.spyOn(Logger.prototype, "warn").mockImplementation();
+    });
+    afterEach(() => {
+      process.env.NODE_ENV = originalEnv;
+      logError.mockRestore();
+      logWarn.mockRestore();
+    });
+
+    it("production: a GCS error answers 503, never a fake upload URL", async () => {
+      process.env.NODE_ENV = "production";
+      mockGetSignedUrl.mockRejectedValue(new Error("invalid_grant: bad key"));
+      const gcs = await build(mockConfig);
+
+      await expect(
+        gcs.generateSignedUploadUrl("avatars/u/c.png", "image/png"),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(logError.mock.calls.map(String).join()).toContain("invalid_grant");
+    });
+
+    it("production: the 503 body does not carry the GCS error text", async () => {
+      process.env.NODE_ENV = "production";
+      mockGetSignedUrl.mockRejectedValue(new Error("invalid_grant: bad key"));
+      const gcs = await build(mockConfig);
+
+      const failure: ServiceUnavailableException = await gcs
+        .generateSignedUploadUrl("avatars/u/c.png", "image/png")
+        .then(
+          () => {
+            throw new Error("expected a rejection");
+          },
+          (error) => error,
+        );
+
+      expect(JSON.stringify(failure.getResponse())).not.toContain(
+        "invalid_grant",
+      );
+    });
+
+    it("production: a key that is not a PEM answers 503", async () => {
+      process.env.NODE_ENV = "production";
+      const gcs = await build(badKeyConfig);
+
+      await expect(
+        gcs.generateSignedUploadUrl("avatars/u/c.png", "image/png"),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(mockGetSignedUrl).not.toHaveBeenCalled();
+      expect(logError).toHaveBeenCalled();
+    });
+
+    it.each(["development", "test"])(
+      "%s: a GCS error falls back to the mock upload URL and warns",
+      async (env) => {
+        process.env.NODE_ENV = env;
+        mockGetSignedUrl.mockRejectedValue(new Error("invalid_grant"));
+        const gcs = await build(mockConfig);
+
+        const result = await gcs.generateSignedUploadUrl(
+          "avatars/u/c.png",
+          "image/png",
+        );
+
+        expect(result.uploadUrl).toBe("mock-dev-upload://avatars/u/c.png");
+        expect(logWarn.mock.calls.map(String).join()).toContain(
+          "invalid_grant",
+        );
+      },
+    );
+
+    it("development: a key that is not a PEM falls back to the mock upload URL", async () => {
+      process.env.NODE_ENV = "development";
+      const gcs = await build(badKeyConfig);
+
+      const result = await gcs.generateSignedUploadUrl(
+        "avatars/u/c.png",
+        "image/png",
+      );
+
+      expect(result.uploadUrl).toBe("mock-dev-upload://avatars/u/c.png");
+      expect(logWarn).toHaveBeenCalled();
     });
   });
 
