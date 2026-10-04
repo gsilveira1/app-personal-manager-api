@@ -213,9 +213,9 @@ Copy `.env.example` to `.env` and fill in all values. **Never commit `.env`.**
 | `POSTGRES_PORT` | ⚙️ optional | `5432` | PostgreSQL host port |
 | `REDIS_HOST` | ⚙️ optional | `localhost` / `redis` | Redis host |
 | `REDIS_PORT` | ⚙️ optional | `6379` | Redis port |
-| `REDIS_URL` | ⚙️ optional | `redis://localhost:6379` | Redis connection URL |
-| `EVOLUTION_API_URL` | ✅ | `http://localhost:8080` | URL to Evolution API instance |
-| `EVOLUTION_API_KEY` | ✅ | `personalops_secret_token_123` | Authentication key for Evolution API |
+| `REDIS_URL` | ✅ | `redis://localhost:6379` | Redis connection URL of the notifications queue (BullMQ); the app does not start without it |
+| `EVOLUTION_API_URL` | ⚠️ optional | `http://localhost:8080` | URL to Evolution API instance |
+| `EVOLUTION_API_KEY` | ⚠️ optional | `personalops_secret_token_123` | Authentication key for Evolution API |
 | `EVOLUTION_PORT` | ⚙️ optional | `8080` | Host port for Evolution API |
 | `AUTHENTICATION_API_KEY` | ⚙️ optional | `personalops_secret_token_123` | Master API Key configured inside Evolution container |
 | `R2_ACCOUNT_ID` | ⚠️ optional | `...` | Cloudflare R2 Account ID |
@@ -223,8 +223,12 @@ Copy `.env.example` to `.env` and fill in all values. **Never commit `.env`.**
 | `R2_SECRET_ACCESS_KEY` | ⚠️ optional | `...` | Cloudflare R2 Secret Key |
 | `R2_BUCKET_NAME` | ⚠️ optional | `viviops-storage` | Cloudflare R2 Bucket Name |
 | `R2_PUBLIC_URL` | ⚠️ optional | `https://pub-r2.viviops.com` | Public CDN URL for assets |
-| `JWT_SECRET` | ✅ | `seu_segredo_aqui` | Secret used to sign JWT tokens |
-| `TRAINER_USER_ID` | ✅ | `uuid` | UUID of trainer user — scopes public endpoints |
+| `JWT_SECRET` | ✅ | — (generate: `openssl rand -base64 48`) | Signs access tokens and student-portal links. With `NODE_ENV=production` start-up fails when it is missing, shorter than 32 characters or a known placeholder |
+| `FRONTEND_URL` | ✅ in production | `http://localhost:5173` | Base URL of the web app; magic links and password-reset links are built from it (falls back to `APP_CLIENT_URL`, then `http://localhost:5173`) |
+| `CORS_ALLOWED_ORIGINS` | ⚙️ optional | — | Comma-separated extra origins allowed cross-origin (e.g. the public website). `FRONTEND_URL`/`APP_CLIENT_URL` origins are always allowed; localhost only outside production; `*` is rejected at start-up |
+| `EMAIL_SMTP_SECURE` | ⚙️ optional | `false` | Implicit TLS; defaults to true in production on port 465 |
+| `EMAIL_SMTP_USER` / `EMAIL_SMTP_PASSWORD` | ⚙️ optional | — | SMTP auth, both or neither |
+| `SEED_ALLOW_PRODUCTION` / `SEED_ADMIN_PASSWORD` | ⚙️ optional | — | The seed refuses to run in production without both (password 12+ characters); it never resets existing accounts |
 | `GEMINI_API_KEY` | ⚠️ optional | `AQ...` | Google Gemini AI API key |
 
 ---
