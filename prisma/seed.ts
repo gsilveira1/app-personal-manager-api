@@ -1,1601 +1,1625 @@
+/**
+ * Demo data for the consolidated schema (docs/api-contract-v2.md, 11 models).
+ *
+ * Idempotent: accounts are created when their e-mail is missing (an existing
+ * account is never overwritten: its password, role and status stay as they are),
+ * global exercises are upserted by id, and everything the demo trainers own is
+ * deleted and recreated, so running it twice leaves the same rows. Data of any
+ * other account is never touched.
+ *
+ * Production: refuses to run with NODE_ENV=production unless
+ * SEED_ALLOW_PRODUCTION=true, and then requires SEED_ADMIN_PASSWORD (no default).
+ * See prisma/seed-guard.ts.
+ *
+ * Every JSONB column is written through the builder of src/common/types
+ * (a hand-built document makes the API answer 500 on read, by design).
+ *
+ * Run: npx prisma db seed   (DATABASE_URL must point at the target database)
+ */
+import "reflect-metadata";
 import {
-  PrismaClient,
-  ClientStatus,
+  AccountStatus,
+  AssessmentType,
   ClientModality,
-  TenantStatus,
+  ClientStatus,
+  EventStatus,
+  EventType,
+  PaymentProvider,
+  PaymentStatus,
+  Prisma,
+  PrismaClient,
+  SubscriptionStatus,
   WhatsappStatus,
-} from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
-import * as bcrypt from 'bcrypt';
-import { addDays, subDays, setHours, setMinutes, addHours } from 'date-fns';
+} from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import * as bcrypt from "bcrypt";
+import { addDays, subDays } from "date-fns";
+import { Pool } from "pg";
+import { v5 as uuidv5 } from "uuid";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
+import {
+  buildAnamnesisData,
+  buildExecutionData,
+  buildIdempotencyKey,
+  buildPhysicalEvaluationData,
+  buildWorkoutStructure,
+  EMPTY_ANAMNESIS_DATA,
+  mergeUserSettings,
+  PlanFeatureKey,
+  toJsonValue,
+  UserSettings,
+  WorkoutStructureInputDto,
+} from "../src/common/types";
+import { expandRRuleForRange } from "../src/modules/calendar/rrule-expander";
+import {
+  assertSeedAllowed,
+  DEMO_PASSWORD,
+  resolveSeedPassword,
+  ScriptEnv,
+} from "./seed-guard";
 
-async function upsertPlan(
-  userId: string,
-  data: {
-    type: string;
-    name: string;
-    sessionsPerWeek: number;
-    durationMinutes?: number;
-    price: number;
-  },
-) {
-  const existing = await prisma.plan.findFirst({ where: { userId, name: data.name } });
-  if (existing) {
-    return prisma.plan.update({ where: { id: existing.id }, data });
-  }
-  return prisma.plan.create({ data: { ...data, userId } });
+export interface SeedConnection {
+  prisma: PrismaClient;
+  close: () => Promise<void>;
 }
 
-async function main() {
-  console.log('🌱 [Seed] Iniciando população completa de todas as entidades do banco...');
+function connectTo(databaseUrl: string): SeedConnection {
+  const pool = new Pool({ connectionString: databaseUrl });
+  const client = new PrismaClient({ adapter: new PrismaPg(pool) });
+  return {
+    prisma: client,
+    close: async () => {
+      await client.$disconnect();
+      await pool.end();
+    },
+  };
+}
 
-  // ──────────────────────────────────────────
-  // 1. Tenants (Multi-Tenant Core)
-  // ──────────────────────────────────────────
-  const tenantVivi = await prisma.tenant.upsert({
-    where: { slug: 'vivi-personal' },
-    update: {
-      name: 'Vivi Personal Studio',
-      status: TenantStatus.ACTIVE,
-      primaryColor: '#10B981',
-      setupCompleted: true,
-      whatsappStatus: WhatsappStatus.CONNECTED,
-      whatsappInstanceName: 'tenant-vivi-001',
-      logoUrl: 'https://pub-r2.viviops.com/logos/vivi-logo.png',
-      features: {
-        maxStudents: 100,
-        canUploadVideos: true,
-        whatsappAlerts: true,
-        aiAssistantEnabled: true,
-      },
-    },
-    create: {
-      name: 'Vivi Personal Studio',
-      slug: 'vivi-personal',
-      status: TenantStatus.ACTIVE,
-      primaryColor: '#10B981',
-      logoUrl: 'https://pub-r2.viviops.com/logos/vivi-logo.png',
-      whatsappInstanceName: 'tenant-vivi-001',
-      whatsappStatus: WhatsappStatus.CONNECTED,
-      setupCompleted: true,
-      features: {
-        maxStudents: 100,
-        canUploadVideos: true,
-        whatsappAlerts: true,
-        aiAssistantEnabled: true,
-      },
-    },
-  });
+/** Set by main() once the production guard has passed; nothing connects before that. */
+let prisma: PrismaClient;
 
-  const tenantElite = await prisma.tenant.upsert({
-    where: { slug: 'elite-fit-studio' },
-    update: {
-      name: 'Elite Fit Studio',
-      status: TenantStatus.ACTIVE,
-      primaryColor: '#2563EB',
-      logoUrl: 'https://pub-r2.viviops.com/logos/elite-logo.png',
-      whatsappInstanceName: 'tenant-elite-002',
-      whatsappStatus: WhatsappStatus.CONNECTED,
-      setupCompleted: true,
-      features: {
-        maxStudents: 50,
-        canUploadVideos: true,
-        whatsappAlerts: true,
-      },
-    },
-    create: {
-      name: 'Elite Fit Studio',
-      slug: 'elite-fit-studio',
-      status: TenantStatus.ACTIVE,
-      primaryColor: '#2563EB',
-      logoUrl: 'https://pub-r2.viviops.com/logos/elite-logo.png',
-      whatsappInstanceName: 'tenant-elite-002',
-      whatsappStatus: WhatsappStatus.CONNECTED,
-      setupCompleted: true,
-      features: {
-        maxStudents: 50,
-        canUploadVideos: true,
-        whatsappAlerts: true,
-      },
-    },
-  });
+const SEED_NAMESPACE = "6f1d1c9e-5a1f-4c0e-9a55-0b6c7d1e2f30";
+const TIMEZONE = "America/Sao_Paulo";
+const PHOTO = "https://images.unsplash.com";
+const CDN = "https://pub-r2.viviops.com";
 
-  const tenantZen = await prisma.tenant.upsert({
-    where: { slug: 'zen-pilates-studio' },
-    update: {
-      name: 'Zen Pilates & Posture',
-      status: TenantStatus.OVERDUE,
-      primaryColor: '#8B5CF6',
-      logoUrl: 'https://pub-r2.viviops.com/logos/zen-logo.png',
-      whatsappInstanceName: 'tenant-zen-003',
-      whatsappStatus: WhatsappStatus.PENDING,
-      setupCompleted: false,
-      features: {
+/** Stable UUID for a seeded row, so re-runs and cross-references agree. */
+const seedId = (name: string): string => uuidv5(name, SEED_NAMESPACE);
+
+/** `days` from today at hh:mm (server local time), seconds zeroed (RRULE instants are whole seconds). */
+function at(days: number, hours: number, minutes = 0): Date {
+  const date = addDays(new Date(), days);
+  date.setHours(hours, minutes, 0, 0);
+  return date;
+}
+
+const settings = (patch: UserSettings): Prisma.InputJsonValue =>
+  toJsonValue(mergeUserSettings({}, patch));
+
+// ─── 1. Accounts ─────────────────────────────────────────────────────────────
+
+interface AccountSeed {
+  email: string;
+  name: string;
+  role: "admin" | "trainer";
+  slug: string;
+  status: AccountStatus;
+  primaryColor: string;
+  logoUrl: string | null;
+  setupCompleted: boolean;
+  phone: string | null;
+  bio: string | null;
+  settings: UserSettings;
+}
+
+const ACCOUNTS: AccountSeed[] = [
+  {
+    // The only admin: sign-up can create trainers only.
+    email: "admin@gym.com",
+    name: "Viviana Personal",
+    role: "admin",
+    slug: "vivi-personal",
+    status: AccountStatus.ACTIVE,
+    primaryColor: "#10B981",
+    logoUrl: `${CDN}/logos/vivi-logo.png`,
+    setupCompleted: true,
+    phone: "+5553999990001",
+    bio: "Personal trainer em Pelotas/RS. Treinos presenciais de 30 e 60 minutos e consultoria online.",
+    settings: {
+      aiInstructions:
+        "Priorize cadência 3-0-1-0 e foco em amplitude máxima para alunos com queixas posturais.",
+      language: "pt-BR",
+      limits: { maxStudents: 100, canUploadVideos: true, whatsappAlerts: true },
+    },
+  },
+  {
+    email: "carlos@elitefit.com",
+    name: "Carlos Oliveira",
+    role: "trainer",
+    slug: "elite-fit-studio",
+    status: AccountStatus.ACTIVE,
+    primaryColor: "#2563EB",
+    logoUrl: `${CDN}/logos/elite-logo.png`,
+    setupCompleted: true,
+    phone: "+5551999990002",
+    bio: "Powerlifting e condicionamento.",
+    settings: {
+      aiInstructions:
+        "Foco em progressão de carga e RPE (escala de esforço percebido).",
+      limits: { maxStudents: 50, canUploadVideos: true, whatsappAlerts: true },
+    },
+  },
+  {
+    email: "juliana.trainer@viviops.com",
+    name: "Juliana Silva",
+    role: "trainer",
+    slug: "zen-pilates-studio",
+    status: AccountStatus.OVERDUE,
+    primaryColor: "#8B5CF6",
+    logoUrl: `${CDN}/logos/zen-logo.png`,
+    setupCompleted: false,
+    phone: null,
+    bio: null,
+    settings: {
+      limits: {
         maxStudents: 20,
         canUploadVideos: false,
         whatsappAlerts: false,
       },
     },
-    create: {
-      name: 'Zen Pilates & Posture',
-      slug: 'zen-pilates-studio',
-      status: TenantStatus.OVERDUE,
-      primaryColor: '#8B5CF6',
-      logoUrl: 'https://pub-r2.viviops.com/logos/zen-logo.png',
-      whatsappInstanceName: 'tenant-zen-003',
-      whatsappStatus: WhatsappStatus.PENDING,
-      setupCompleted: false,
-      features: {
-        maxStudents: 20,
-        canUploadVideos: false,
-        whatsappAlerts: false,
-      },
-    },
-  });
+  },
+  {
+    email: "rafael@ironcrossfit.com",
+    name: "Rafael Iron CrossFit",
+    role: "trainer",
+    slug: "iron-crossfit-box",
+    status: AccountStatus.BLOCKED,
+    primaryColor: "#DC2626",
+    logoUrl: null,
+    setupCompleted: false,
+    phone: null,
+    bio: null,
+    settings: {},
+  },
+];
 
-  const tenantIron = await prisma.tenant.upsert({
-    where: { slug: 'iron-crossfit-box' },
-    update: {
-      name: 'Iron CrossFit Box',
-      status: TenantStatus.BLOCKED,
-      primaryColor: '#EF4444',
+/**
+ * Creates the demo accounts that are missing. An account that already exists is
+ * left exactly as it is (`update: {}`): a re-run never resets a password.
+ */
+async function seedAccounts(
+  plainPassword: string,
+): Promise<Map<string, string>> {
+  const password = await bcrypt.hash(plainPassword, 10);
+  const ids = new Map<string, string>();
+  for (const account of ACCOUNTS) {
+    // WhatsApp is seeded unpaired on purpose: a CONNECTED demo account next to a
+    // configured Evolution API would send real messages to the demo phone numbers.
+    const data = {
+      ...account,
+      settings: settings(account.settings),
+      password,
+      whatsappInstanceName: null,
       whatsappStatus: WhatsappStatus.DISCONNECTED,
-      setupCompleted: true,
-    },
-    create: {
-      name: 'Iron CrossFit Box',
-      slug: 'iron-crossfit-box',
-      status: TenantStatus.BLOCKED,
-      primaryColor: '#EF4444',
-      whatsappStatus: WhatsappStatus.DISCONNECTED,
-      setupCompleted: true,
-    },
-  });
-  console.log(`✅ Tenants: Vivi (${tenantVivi.id}), Elite Fit (${tenantElite.id}), Zen (${tenantZen.id}), Iron (${tenantIron.id})`);
+    };
+    const user = await prisma.user.upsert({
+      where: { email: account.email },
+      update: {},
+      create: data,
+    });
+    ids.set(account.slug, user.id);
+  }
+  return ids;
+}
 
-  // ──────────────────────────────────────────
-  // 2. Users (Trainers / Admin)
-  // ──────────────────────────────────────────
-  const passwordHash = await bcrypt.hash('admin123', 10);
-
-  const trainerVivi = await prisma.user.upsert({
-    where: { email: 'admin@gym.com' },
-    update: {
-      name: 'Viviana Personal',
-      password: passwordHash,
-      role: 'admin',
-      phone: '+5551999999999',
-      bio: 'Personal Trainer especialista em Hipertrofia Feminina, Reabilitação e Emagrecimento.',
-      avatar: 'https://images.unsplash.com/photo-1594381898411-846e7d193883?auto=format&fit=crop&q=80&w=200',
-      tenantId: tenantVivi.id,
-    },
-    create: {
-      name: 'Viviana Personal',
-      email: 'admin@gym.com',
-      password: passwordHash,
-      role: 'admin',
-      phone: '+5551999999999',
-      bio: 'Personal Trainer especialista em Hipertrofia Feminina, Reabilitação e Emagrecimento.',
-      avatar: 'https://images.unsplash.com/photo-1594381898411-846e7d193883?auto=format&fit=crop&q=80&w=200',
-      tenantId: tenantVivi.id,
-    },
-  });
-
-  const trainerCarlos = await prisma.user.upsert({
-    where: { email: 'carlos@elitefit.com' },
-    update: {
-      name: 'Carlos Oliveira',
-      password: passwordHash,
-      role: 'trainer',
-      phone: '+5551988888888',
-      bio: 'Treinador de Alta Performance e Biomecânica.',
-      tenantId: tenantElite.id,
-    },
-    create: {
-      name: 'Carlos Oliveira',
-      email: 'carlos@elitefit.com',
-      password: passwordHash,
-      role: 'trainer',
-      phone: '+5551988888888',
-      bio: 'Treinador de Alta Performance e Biomecânica.',
-      tenantId: tenantElite.id,
-    },
-  });
-
-  const trainerJuliana = await prisma.user.upsert({
-    where: { email: 'juliana.trainer@viviops.com' },
-    update: {
-      name: 'Juliana Silva',
-      password: passwordHash,
-      role: 'trainer',
-      phone: '+5551977777777',
-      bio: 'Treinadora assistente especializada em Funcional e Pilates Solo.',
-      tenantId: tenantVivi.id,
-    },
-    create: {
-      name: 'Juliana Silva',
-      email: 'juliana.trainer@viviops.com',
-      password: passwordHash,
-      role: 'trainer',
-      phone: '+5551977777777',
-      bio: 'Treinadora assistente especializada em Funcional e Pilates Solo.',
-      tenantId: tenantVivi.id,
-    },
-  });
-  console.log(`✅ Users: Viviana (${trainerVivi.id}), Carlos (${trainerCarlos.id}), Juliana (${trainerJuliana.id})`);
-
-  // ──────────────────────────────────────────
-  // 3. User Settings & AI Instructions
-  // ──────────────────────────────────────────
-  await prisma.userSetting.upsert({
-    where: { userId_key: { userId: trainerVivi.id, key: 'ai_prompt' } },
-    update: { value: 'Priorize cadência 3-0-1-0 e foco em amplitude máxima para alunos com queixas posturais.' },
-    create: {
-      userId: trainerVivi.id,
-      key: 'ai_prompt',
-      value: 'Priorize cadência 3-0-1-0 e foco em amplitude máxima para alunos com queixas posturais.',
-    },
-  });
-  await prisma.userSetting.upsert({
-    where: { userId_key: { userId: trainerVivi.id, key: 'preferred_language' } },
-    update: { value: 'pt-BR' },
-    create: {
-      userId: trainerVivi.id,
-      key: 'preferred_language',
-      value: 'pt-BR',
-    },
-  });
-  await prisma.userSetting.upsert({
-    where: { userId_key: { userId: trainerVivi.id, key: 'calendar_default_view' } },
-    update: { value: 'timeGridWeek' },
-    create: {
-      userId: trainerVivi.id,
-      key: 'calendar_default_view',
-      value: 'timeGridWeek',
-    },
-  });
-  await prisma.userSetting.upsert({
-    where: { userId_key: { userId: trainerCarlos.id, key: 'ai_prompt' } },
-    update: { value: 'Foco em progressão de carga e RPE (escala de esforço percebido).' },
-    create: {
-      userId: trainerCarlos.id,
-      key: 'ai_prompt',
-      value: 'Foco em progressão de carga e RPE (escala de esforço percebido).',
-    },
-  });
-  console.log('✅ User Settings configuradas');
-
-  // ──────────────────────────────────────────
-  // 4. Availability Blocks (Recorrentes e Pontuais)
-  // ──────────────────────────────────────────
-  await prisma.availabilityBlock.deleteMany({
-    where: { userId: { in: [trainerVivi.id, trainerCarlos.id] } },
-  });
-  const today = new Date();
-  await prisma.availabilityBlock.createMany({
-    data: [
-      {
-        userId: trainerVivi.id,
-        title: 'Horário de Almoço',
-        rrule: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
-        timezone: 'America/Sao_Paulo',
-        dtstart: setMinutes(setHours(today, 12), 0),
-        dtend: setMinutes(setHours(today, 13), 30),
-        notes: 'Almoço e descanso diário',
-      },
-      {
-        userId: trainerVivi.id,
-        title: 'Atualização e Estudos',
-        rrule: 'FREQ=WEEKLY;BYDAY=FR',
-        timezone: 'America/Sao_Paulo',
-        dtstart: setMinutes(setHours(today, 18), 0),
-        dtend: setMinutes(setHours(today, 19), 30),
-        notes: 'Estudos de biomecânica',
-      },
-      // Bloco pontual (sem rrule)
-      {
-        userId: trainerVivi.id,
-        title: 'Consulta Médica',
-        rrule: null,
-        timezone: 'America/Sao_Paulo',
-        dtstart: setMinutes(setHours(addDays(today, 3), 14), 0),
-        dtend: setMinutes(setHours(addDays(today, 3), 16), 0),
-        notes: 'Exames de rotina',
-      },
-      {
-        userId: trainerCarlos.id,
-        title: 'Manutenção Equipamentos',
-        rrule: null,
-        timezone: 'America/Sao_Paulo',
-        dtstart: setMinutes(setHours(addDays(today, 5), 8), 0),
-        dtend: setMinutes(setHours(addDays(today, 5), 11), 0),
-        notes: 'Revisão das máquinas do estúdio',
-      },
-    ],
-  });
-  console.log('✅ Availability Blocks criados (recorrentes e pontuais)');
-
-  // ──────────────────────────────────────────
-  // 5. System Features & Plan Features
-  // ──────────────────────────────────────────
-  const featAi = await prisma.systemFeature.upsert({
-    where: { key: 'ai_whatsapp_bot' },
-    update: {},
-    create: {
-      key: 'ai_whatsapp_bot',
-      name: 'Assistente WhatsApp com IA',
-      description: 'Responde dúvidas e envia lembretes inteligentes para os alunos.',
-      isActive: true,
-    },
-  });
-  const featVideo = await prisma.systemFeature.upsert({
-    where: { key: 'video_exercise_upload' },
-    update: {},
-    create: {
-      key: 'video_exercise_upload',
-      name: 'Vídeos Customizados de Exercícios',
-      description: 'Permite anexar vídeos gravados pelo personal nos treinos.',
-      isActive: true,
-    },
-  });
-  const featPix = await prisma.systemFeature.upsert({
-    where: { key: 'automated_pix' },
-    update: {},
-    create: {
-      key: 'automated_pix',
-      name: 'Cobrança Automática via PIX',
-      description: 'Gera QR Code dinâmico do MercadoPago/Asaas.',
-      isActive: true,
-    },
-  });
-  const featPosture = await prisma.systemFeature.upsert({
-    where: { key: 'posture_correction' },
-    update: {},
-    create: {
-      key: 'posture_correction',
-      name: 'Módulo de Avaliação Postural',
-      description: 'Gera relatório de desvios posturais e assimetrias.',
-      isActive: true,
-    },
-  });
-  const featMetrics = await prisma.systemFeature.upsert({
-    where: { key: 'advanced_metrics' },
-    update: {},
-    create: {
-      key: 'advanced_metrics',
-      name: 'Métricas Avançadas de Carga (1RM & Volume Load)',
-      description: 'Dashboard com gráficos de tonelagem e progressão.',
-      isActive: true,
-    },
-  });
-  console.log('✅ System Features configuradas');
-
-  // ──────────────────────────────────────────
-  // 6. Plans (Planos Presenciais e Consultoria)
-  // ──────────────────────────────────────────
-  const [p2x30, p3x30, p4x60, p3x60, cBasica, cCompleta, cTrimestral] = await Promise.all([
-    upsertPlan(trainerVivi.id, { type: 'PRESENCIAL', name: 'Presencial 2x 30min', sessionsPerWeek: 2, durationMinutes: 30, price: 350 }),
-    upsertPlan(trainerVivi.id, { type: 'PRESENCIAL', name: 'Presencial 3x 30min', sessionsPerWeek: 3, durationMinutes: 30, price: 450 }),
-    upsertPlan(trainerVivi.id, { type: 'PRESENCIAL', name: 'Presencial 4x 60min', sessionsPerWeek: 4, durationMinutes: 60, price: 650 }),
-    upsertPlan(trainerVivi.id, { type: 'PRESENCIAL', name: 'Presencial 3x 60min', sessionsPerWeek: 3, durationMinutes: 60, price: 550 }),
-    upsertPlan(trainerVivi.id, { type: 'CONSULTORIA', name: 'Consultoria Básica Online', sessionsPerWeek: 1, price: 180 }),
-    upsertPlan(trainerVivi.id, { type: 'CONSULTORIA', name: 'Consultoria Completa Online', sessionsPerWeek: 2, price: 280 }),
-    upsertPlan(trainerCarlos.id, { type: 'CONSULTORIA', name: 'Consultoria Powerlifting Trimestral', sessionsPerWeek: 2, price: 500 }),
+/** Removes everything the demo trainers own; clients cascade to their payments, sheets, events, assessments and sessions. */
+async function clearOwnedData(userIds: string[]): Promise<void> {
+  const owned = { userId: { in: userIds } };
+  await prisma.$transaction([
+    prisma.notificationLog.deleteMany({ where: owned }),
+    prisma.event.deleteMany({ where: owned }),
+    prisma.client.deleteMany({ where: owned }),
+    prisma.workoutSheet.deleteMany({ where: owned }),
+    prisma.plan.deleteMany({ where: owned }),
+    prisma.exercise.deleteMany({ where: owned }),
+    prisma.passwordResetToken.deleteMany({ where: owned }),
   ]);
+}
 
-  // Vincular features aos planos
-  await prisma.planFeature.deleteMany({
-    where: { planId: { in: [cCompleta.id, p4x60.id, cBasica.id, cTrimestral.id] } },
-  });
-  await prisma.planFeature.createMany({
-    data: [
-      { planId: cCompleta.id, featureId: featAi.id },
-      { planId: cCompleta.id, featureId: featVideo.id },
-      { planId: p4x60.id, featureId: featPix.id },
-      { planId: p4x60.id, featureId: featPosture.id },
-      { planId: cTrimestral.id, featureId: featMetrics.id },
-      { planId: cTrimestral.id, featureId: featVideo.id },
-    ],
-    skipDuplicates: true,
-  });
-  console.log('✅ Planos e PlanFeatures criados');
+// ─── 2. Exercises ────────────────────────────────────────────────────────────
 
-  // ──────────────────────────────────────────
-  // 7. Exercise Library (Standard & Custom)
-  // ──────────────────────────────────────────
-  // Limpar exercícios e relações dependentes
-  await prisma.workoutExercise.deleteMany({});
-  await prisma.workoutBlock.deleteMany({});
-  await prisma.workoutSheetItem.deleteMany({});
-  await prisma.workoutSheet.deleteMany({});
-  await prisma.exercise.deleteMany({});
+/** The catalogue the API used to hard-code; ids are kept because stored sheets may reference them. */
+const GLOBAL_EXERCISES = [
+  [
+    "global-bench-press",
+    "Barbell Bench Press",
+    "chest",
+    "pectorals",
+    "barbell",
+    "bench-press",
+  ],
+  [
+    "global-squat",
+    "Barbell Back Squat",
+    "legs",
+    "quadriceps",
+    "barbell",
+    "squat",
+  ],
+  [
+    "global-deadlift",
+    "Barbell Deadlift",
+    "back",
+    "erector spinae",
+    "barbell",
+    "deadlift",
+  ],
+  [
+    "global-pullup",
+    "Pull Up",
+    "back",
+    "latissimus dorsi",
+    "bodyweight",
+    "pull-up",
+  ],
+  [
+    "global-dumbell-curl",
+    "Dumbbell Bicep Curl",
+    "arms",
+    "biceps",
+    "dumbbell",
+    "dumbbell-curl",
+  ],
+  [
+    "global-tricep-pushdown",
+    "Tricep Pushdown",
+    "arms",
+    "triceps",
+    "cable",
+    "tricep-pushdown",
+  ],
+  [
+    "global-shoulder-press",
+    "Dumbbell Shoulder Press",
+    "shoulders",
+    "deltoids",
+    "dumbbell",
+    "shoulder-press",
+  ],
+  [
+    "global-leg-press",
+    "Leg Press",
+    "legs",
+    "quadriceps",
+    "machine",
+    "leg-press",
+  ],
+] as const;
 
-  const standardExercisesData = [
-    { name: 'Agachamento Livre', bodyPart: 'Pernas', targetMuscle: 'Quadríceps', equipment: 'Barra', gifUrl: 'https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=300' },
-    { name: 'Leg Press 45º', bodyPart: 'Pernas', targetMuscle: 'Quadríceps / Glúteos', equipment: 'Máquina', gifUrl: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=300' },
-    { name: 'Cadeira Extensora', bodyPart: 'Pernas', targetMuscle: 'Quadríceps', equipment: 'Máquina', gifUrl: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=300' },
-    { name: 'Mesa Flexora', bodyPart: 'Pernas', targetMuscle: 'Posterior de Coxa', equipment: 'Máquina', gifUrl: 'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?w=300' },
-    { name: 'Stiff com Halteres', bodyPart: 'Pernas', targetMuscle: 'Posterior / Glúteos', equipment: 'Halteres', gifUrl: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=300' },
-    { name: 'Elevação Pélvica com Barra', bodyPart: 'Pernas', targetMuscle: 'Glúteos', equipment: 'Barra', gifUrl: 'https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=300' },
-    { name: 'Supino Reto com Barra', bodyPart: 'Peitoral', targetMuscle: 'Peitoral Maior', equipment: 'Barra', gifUrl: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=300' },
-    { name: 'Supino Inclinado com Halteres', bodyPart: 'Peitoral', targetMuscle: 'Peitoral Superior', equipment: 'Halteres', gifUrl: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=300' },
-    { name: 'Crucifixo na Máquina Peck Deck', bodyPart: 'Peitoral', targetMuscle: 'Peitoral', equipment: 'Máquina', gifUrl: 'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?w=300' },
-    { name: 'Puxada Alta Frontal', bodyPart: 'Costas', targetMuscle: 'Latíssimo do Dorso', equipment: 'Polia', gifUrl: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=300' },
-    { name: 'Remada Curvada com Barra', bodyPart: 'Costas', targetMuscle: 'Dorsais / Romboides', equipment: 'Barra', gifUrl: 'https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=300' },
-    { name: 'Remada Baixa no Triângulo', bodyPart: 'Costas', targetMuscle: 'Dorsais', equipment: 'Polia', gifUrl: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=300' },
-    { name: 'Desenvolvimento com Halteres', bodyPart: 'Ombros', targetMuscle: 'Deltoide Anterior', equipment: 'Halteres', gifUrl: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=300' },
-    { name: 'Elevação Lateral na Polia', bodyPart: 'Ombros', targetMuscle: 'Deltoide Lateral', equipment: 'Polia', gifUrl: 'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?w=300' },
-    { name: 'Rosca Direta na Barra W', bodyPart: 'Braços', targetMuscle: 'Bíceps Braquial', equipment: 'Barra', gifUrl: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=300' },
-    { name: 'Tríceps Corda na Polia', bodyPart: 'Braços', targetMuscle: 'Tríceps', equipment: 'Polia', gifUrl: 'https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=300' },
-    { name: 'Prancha Abdominal Isométrica', bodyPart: 'Core', targetMuscle: 'Reto Abdominal', equipment: 'Peso Corporal', gifUrl: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=300' },
-    { name: 'Panturrilha em Pé na Máquina', bodyPart: 'Pernas', targetMuscle: 'Gastrocnêmio', equipment: 'Máquina', gifUrl: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=300' },
-  ];
-
-  const customExercisesData = [
-    {
-      name: 'Agachamento Búlgaro com Halteres e Isometria',
-      bodyPart: 'Pernas',
-      targetMuscle: 'Glúteo Máximo e Quadríceps',
-      equipment: 'Halteres',
-      gifUrl: 'https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=300',
-      videoUrl: 'https://pub-r2.viviops.com/videos/bulgarian-squat-vivi.mp4',
-      isCustom: true,
-      userId: trainerVivi.id,
-      tenantId: tenantVivi.id,
-    },
-    {
-      name: 'Face Pull com Rotação Externa no Cabo',
-      bodyPart: 'Ombros',
-      targetMuscle: 'Manguito Rotador / Deltoide Posterior',
-      equipment: 'Polia',
-      gifUrl: 'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?w=300',
-      videoUrl: 'https://pub-r2.viviops.com/videos/facepull-carlos.mp4',
-      isCustom: true,
-      userId: trainerCarlos.id,
-      tenantId: tenantElite.id,
-    },
-  ];
-
-  const createdExercises = await Promise.all([
-    ...standardExercisesData.map((ex) =>
-      prisma.exercise.create({
-        data: {
-          ...ex,
-          isCustom: false,
-          userId: trainerVivi.id,
-          tenantId: tenantVivi.id,
-        },
-      }),
-    ),
-    ...customExercisesData.map((ex) =>
-      prisma.exercise.create({
-        data: ex,
-      }),
-    ),
-  ]);
-  console.log(`✅ Exercícios: ${createdExercises.length} cadastrados (padrão e customizados)`);
-
-  // ──────────────────────────────────────────
-  // 8. 20 Clientes com status e modalidades diversas
-  // ──────────────────────────────────────────
-  const clientsData = [
-    {
-      name: 'Ana Luísa Timmen',
-      phone: '+5551991849376',
-      email: 'ana.timmen@viviops.client',
-      dateOfBirth: new Date('2009-09-24'),
-      goal: 'Manter massa magra e emagrecer',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p2x30.id,
-      currentPeriodEnd: addDays(today, 25),
-      checkInFreq: '2x/semana',
-      notes: 'Aluna muito dedicada. Preferência por treinos matinais.',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Adriana Parada',
-      phone: '+5551992641343',
-      email: 'adriana.parada@viviops.client',
-      dateOfBirth: new Date('1988-09-30'),
-      goal: 'Emagrecimento e ganho de força',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p2x30.id,
-      currentPeriodEnd: addDays(today, 15),
-      checkInFreq: '2x/semana',
-      notes: 'Histórico de dor lombar; evitar flexão de tronco excessiva.',
-      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Angélica Eltz',
-      phone: '+5551991286543',
-      email: 'angelica.eltz@viviops.client',
-      dateOfBirth: new Date('1969-08-03'),
-      goal: 'Emagrecer e manter massa magra na menopausa',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p3x30.id,
-      currentPeriodEnd: addDays(today, 20),
-      checkInFreq: '3x/semana',
-      notes: 'Foco em fortalecimento ósseo e muscular.',
-      avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Cássia Franck Ferreira',
-      phone: '+5551981760721',
-      email: 'cassia.franck@viviops.client',
-      dateOfBirth: new Date('1992-06-01'),
-      goal: 'Emagrecer com saúde e hipertrofia de glúteos',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p3x30.id,
-      currentPeriodEnd: addDays(today, 18),
-      notes: 'Advogada, rotina corrida. Treinos objetivos e intensos.',
-      avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Cristiane Veridiana Martin',
-      phone: '+5551991313787',
-      email: 'cristiane.martin@viviops.client',
-      dateOfBirth: new Date('1975-07-29'),
-      goal: 'Emagrecer e manter massa magra',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p2x30.id,
-      currentPeriodEnd: addDays(today, 12),
-      notes: 'Excelente consistência nas terças e quintas.',
-      avatar: 'https://images.unsplash.com/photo-1567532939604-b6b5b0db2604?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Cristiane Adam Grings',
-      phone: '+5551991050808',
-      email: 'cristiane.grings@viviops.client',
-      dateOfBirth: new Date('1982-11-14'),
-      goal: 'Emagrecer, manter massa magra, melhorar lipedema',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p2x30.id,
-      notes: 'Cuidado especial com retenção hídrica; foco em contrações isométricas.',
-      avatar: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Cristiane Roxo',
-      phone: '+5551999988112',
-      email: 'cristiane.roxo@viviops.client',
-      dateOfBirth: new Date('1978-04-12'),
-      goal: 'Tonificação e condicionamento cardiovascular',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p3x30.id,
-      notes: 'Treina sempre com a amiga Fabiane.',
-      avatar: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Fabiane Bitencourt',
-      phone: '+5551988877223',
-      email: 'fabiane.bitencourt@viviops.client',
-      dateOfBirth: new Date('1980-01-20'),
-      goal: 'Hipertrofia de membros inferiores',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p3x30.id,
-      notes: 'Boa resposta neuromuscular.',
-      avatar: 'https://images.unsplash.com/photo-1548142813-c348350df52b?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Graziela Larruscaim',
-      phone: '+5551997766334',
-      email: 'graziela.larruscaim@viviops.client',
-      dateOfBirth: new Date('1985-05-18'),
-      goal: 'Saúde geral e mobilidade articular',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p2x30.id,
-      notes: 'Alongamentos e mobilidade no início do treino.',
-      avatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Grazielle Pimentel',
-      phone: '+5551996655445',
-      email: 'grazielle.pimentel@viviops.client',
-      dateOfBirth: new Date('1990-10-05'),
-      goal: 'Definição muscular e emagrecimento',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p2x30.id,
-      notes: 'Preferência por Bi-Sets para otimizar os 30 minutos.',
-      avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Juliana Souza',
-      phone: '+5551995544332',
-      email: 'juliana.souza@viviops.client',
-      dateOfBirth: new Date('1995-12-15'),
-      goal: 'Hipertrofia intensa e definição',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p4x60.id,
-      currentPeriodEnd: addDays(today, 28),
-      notes: 'Treina 4 vezes na semana. Carga progressiva.',
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Gabriela Silveira',
-      phone: '+5551994433221',
-      email: 'gabriela.silveira@viviops.client',
-      dateOfBirth: new Date('1993-03-22'),
-      goal: 'Preparação para corrida e força',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p3x60.id,
-      notes: 'Corredora amadora de 10km.',
-      avatar: 'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Letícia Oliveira',
-      phone: '+5551993322110',
-      email: 'leticia.oliveira@viviops.client',
-      dateOfBirth: new Date('1991-07-11'),
-      goal: 'Consultoria online para academia de condomínio',
-      modality: ClientModality.ONLINE,
-      status: ClientStatus.ACTIVE,
-      planId: cCompleta.id,
-      currentPeriodEnd: addDays(today, 30),
-      notes: 'Utiliza o PWA para executar os treinos e registrar cargas.',
-      avatar: 'https://images.unsplash.com/photo-1502685104226-ee32379fefbe?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Mariana Duarte',
-      phone: '+5551992211009',
-      email: 'mariana.duarte@viviops.client',
-      dateOfBirth: new Date('1987-09-08'),
-      goal: 'Consultoria online - Treino em casa com halteres',
-      modality: ClientModality.ONLINE,
-      status: ClientStatus.PAUSED,
-      planId: cCompleta.id,
-      currentPeriodEnd: subDays(today, 5),
-      notes: 'Plano pausado por 30 dias após procedimento cirúrgico no joelho.',
-      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Rodrigo Mendes',
-      phone: '+5551991100998',
-      email: 'rodrigo.mendes@viviops.client',
-      dateOfBirth: new Date('1984-02-17'),
-      goal: 'Ganho de massa magra e postura',
-      modality: ClientModality.ONLINE,
-      status: ClientStatus.OVERDUE,
-      planId: cBasica.id,
-      currentPeriodEnd: subDays(today, 8),
-      notes: 'Mensalidade pendente de renovação. Lembrete enviado via WhatsApp.',
-      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Thiago Albuquerque',
-      phone: '+5551990099887',
-      email: 'thiago.albuquerque@viviops.client',
-      dateOfBirth: new Date('1989-08-30'),
-      goal: 'Performance e Hipertrofia',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p4x60.id,
-      notes: 'Treinos pesados de força e potência.',
-      avatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Vanessa Camargo',
-      phone: '+5551989988776',
-      email: 'vanessa.camargo@viviops.client',
-      dateOfBirth: new Date('1994-11-25'),
-      goal: 'Híbrido: 2x presencial + 1x ficha no app',
-      modality: ClientModality.HYBRID,
-      status: ClientStatus.ACTIVE,
-      planId: p2x30.id,
-      notes: 'Excelente aderência e consistência.',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Lucas Fontana',
-      phone: '+5551988877665',
-      email: 'lucas.fontana@viviops.client',
-      dateOfBirth: new Date('1996-06-19'),
-      goal: 'Híbrido: Reavaliação presencial + fichas online',
-      modality: ClientModality.HYBRID,
-      status: ClientStatus.ACTIVE,
-      planId: cCompleta.id,
-      notes: 'Foco em evolução de cargas no agachamento e supino.',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Patrícia Helena',
-      phone: '+5551987766554',
-      email: 'patricia.helena@viviops.client',
-      dateOfBirth: new Date('1976-03-14'),
-      goal: 'Qualidade de vida e fortalecimento muscular',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      planId: p3x30.id,
-      notes: 'Aluna assídua há mais de 1 ano.',
-      avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200',
-    },
-    {
-      name: 'Fernanda Souza Lead',
-      phone: '+5551986655443',
-      email: 'fernanda.souza.lead@viviops.client',
-      dateOfBirth: new Date('1998-04-20'),
-      goal: 'Emagrecimento e consultoria inicial',
-      modality: ClientModality.ONLINE,
-      status: ClientStatus.LEAD,
-      planId: null,
-      notes: 'Lead captado via formulário do Instagram. Enviado link de anamnese.',
-      avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&q=80&w=200',
-    },
-  ];
-
-  const createdClients = [];
-  for (const c of clientsData) {
-    const client = await prisma.client.upsert({
-      where: { email: c.email },
-      update: {
-        name: c.name,
-        phone: c.phone,
-        goal: c.goal,
-        modality: c.modality,
-        status: c.status,
-        planId: c.planId,
-        currentPeriodEnd: c.currentPeriodEnd,
-        checkInFreq: c.checkInFreq,
-        notes: c.notes,
-        avatar: c.avatar,
-        dateOfBirth: c.dateOfBirth,
-        userId: trainerVivi.id,
-        tenantId: tenantVivi.id,
-      },
-      create: {
-        ...c,
-        userId: trainerVivi.id,
-        tenantId: tenantVivi.id,
-      },
-    });
-    createdClients.push(client);
-  }
-  console.log(`✅ 20 Clientes cadastrados e vinculados ao Tenant Vivi (Vivi Personal Studio)!`);
-
-  // Clientes específicos do Tenant Elite Fit (Carlos)
-  const carlosClientsData = [
-    {
-      name: 'Bruno Meirelles',
-      email: 'bruno.meirelles@elitefit.client',
-      phone: '+5551981112233',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.ACTIVE,
-      goal: 'Hipertrofia e Powerlifting',
-      planId: cTrimestral.id,
-      userId: trainerCarlos.id,
-      tenantId: tenantElite.id,
-    },
-    {
-      name: 'Camila Peixoto',
-      email: 'camila.peixoto@elitefit.client',
-      phone: '+5551982223344',
-      modality: ClientModality.ONLINE,
-      status: ClientStatus.ACTIVE,
-      goal: 'Consultoria de Corrida e Resistência',
-      planId: cTrimestral.id,
-      userId: trainerCarlos.id,
-      tenantId: tenantElite.id,
-    },
-    {
-      name: 'Marcos Vinicius Lead',
-      email: 'marcos.lead@elitefit.client',
-      phone: '+5551983334455',
-      modality: ClientModality.PRESENCIAL,
-      status: ClientStatus.LEAD,
-      goal: 'Preparação para teste de aptidão física (TAF)',
-      userId: trainerCarlos.id,
-      tenantId: tenantElite.id,
-    },
-  ];
-
-  const createdCarlosClients = [];
-  for (const cc of carlosClientsData) {
-    const c = await prisma.client.upsert({
-      where: { email: cc.email },
-      update: {
-        name: cc.name,
-        phone: cc.phone,
-        goal: cc.goal,
-        modality: cc.modality,
-        status: cc.status,
-        planId: cc.planId,
-        userId: cc.userId,
-        tenantId: cc.tenantId,
-      },
-      create: cc,
-    });
-    createdCarlosClients.push(c);
-  }
-  console.log(`✅ Clientes adicionais vinculados ao Tenant Elite Fit (${tenantElite.name})!`);
-
-  // ──────────────────────────────────────────
-  // 9. Anamneses e Reavaliações Físicas
-  // ──────────────────────────────────────────
-  const ana1 = createdClients[0];
-  const adriana = createdClients[1];
-  const cassia = createdClients[3];
-  const juliana = createdClients[10];
-  const leticia = createdClients[12];
-  const leadFernanda = createdClients[19];
-
-  await prisma.anamnesis.deleteMany({
-    where: { userId: { in: [trainerVivi.id, trainerCarlos.id] } },
-  });
-  await prisma.anamnesis.createMany({
-    data: [
-      {
-        clientId: ana1.id,
-        userId: trainerVivi.id,
-        isCurrent: true,
-        token: 'token-anamnese-ana-001',
-        tokenUsed: true,
-        medicalHistory: 'Sem histórico de cirurgias. Pressão arterial normal.',
-        injuriesAndPain: 'Nenhuma dor limitante atual.',
-        routineAndSchedule: 'Estudante. Disponibilidade no início da manhã.',
-        fitnessGoals: 'Emagrecimento saudável e definição de membros inferiores.',
-        experienceLevel: 'Intermediário',
-        weightKg: 58.5,
-        parqAnswers: { q1: false, q2: false, q3: false, q4: false, q5: false, q6: false, q7: false },
-        measurements: { waist: 68, hips: 98, chest: 88, rightArm: 26, rightThigh: 54 },
-        frontPhotoUrl: 'https://pub-r2.viviops.com/evaluations/ana-front.png',
-        backPhotoUrl: 'https://pub-r2.viviops.com/evaluations/ana-back.png',
-        sidePhotoUrl: 'https://pub-r2.viviops.com/evaluations/ana-side.png',
-      },
-      {
-        clientId: adriana.id,
-        userId: trainerVivi.id,
-        isCurrent: true,
-        token: 'token-anamnese-adriana-002',
-        tokenUsed: true,
-        medicalHistory: 'Episódios esporádicos de dor lombar em crises de estresse.',
-        injuriesAndPain: 'Desconforto na região L4-L5 ao carregar peso em flexão.',
-        routineAndSchedule: 'Trabalho em escritório (8h sentada).',
-        fitnessGoals: 'Fortalecimento do core e perda de 4kg.',
-        experienceLevel: 'Iniciante/Intermediário',
-        weightKg: 64.0,
-        parqAnswers: { q1: false, q2: false, q3: false, q4: false, q5: false, q6: false, q7: false },
-        measurements: { waist: 74, hips: 102, chest: 92, rightArm: 28, rightThigh: 58 },
-      },
-      {
-        clientId: cassia.id,
-        userId: trainerVivi.id,
-        isCurrent: true,
-        token: 'token-anamnese-cassia-003',
-        tokenUsed: true,
-        medicalHistory: 'Nenhum problema de saúde crônico.',
-        injuriesAndPain: 'Nenhuma lesão relatada.',
-        routineAndSchedule: 'Rotina de advocacia, noites livres.',
-        fitnessGoals: 'Hipertrofia de glúteos e definição abdominal.',
-        experienceLevel: 'Avançado',
-        weightKg: 61.2,
-      },
-      {
-        clientId: juliana.id,
-        userId: trainerVivi.id,
-        isCurrent: true,
-        token: 'token-anamnese-juliana-004',
-        tokenUsed: true,
-        medicalHistory: 'Excelente saúde. Praticante de musculação há 4 anos.',
-        injuriesAndPain: 'Leve estalo indolor no ombro direito.',
-        routineAndSchedule: 'Tardes livres das 17h às 19h.',
-        fitnessGoals: 'Hipertrofia máxima e ganho de força.',
-        experienceLevel: 'Avançado',
-        weightKg: 67.5,
-      },
-      // Anamnese pendente para Lead
-      {
-        clientId: leadFernanda.id,
-        userId: trainerVivi.id,
-        isCurrent: false,
-        token: 'token-lead-fernanda-999',
-        tokenUsed: false,
-        medicalHistory: null,
-        injuriesAndPain: null,
-        routineAndSchedule: null,
-        fitnessGoals: 'Perder 5kg antes do verão',
-        experienceLevel: 'Iniciante',
-      },
-    ],
-  });
-  console.log('✅ Anamneses cadastradas (respondidas e pendentes)');
-
-  // ──────────────────────────────────────────
-  // 10. Avaliações Físicas e Dobras Cutâneas
-  // ──────────────────────────────────────────
-  const allClientIds = [...createdClients, ...createdCarlosClients].map((c) => c.id);
-  await prisma.evaluation.deleteMany({ where: { clientId: { in: allClientIds } } });
-  await prisma.evaluation.createMany({
-    data: [
-      {
-        clientId: ana1.id,
-        date: subDays(today, 60),
-        weight: 60.5,
-        height: 165,
-        bodyFatPercentage: 24.5,
-        leanMass: 45.68,
-        fatMass: 14.82,
-        bodyDensity: 1.045,
-        protocol: 'POLLOCK_3',
-        equation: 'Siri',
-        skinfolds: { triceps: 14, suprailiac: 16, thigh: 20 },
-        perimeters: { waist: 68, abdomen: 74, hips: 98, rightThigh: 54, rightArm: 26 },
-        notes: 'Avaliação inicial com foco em redução de gordura.',
-      },
-      {
-        clientId: ana1.id,
-        date: subDays(today, 10),
-        weight: 58.5,
-        height: 165,
-        bodyFatPercentage: 21.8,
-        leanMass: 45.75,
-        fatMass: 12.75,
-        bodyDensity: 1.052,
-        protocol: 'POLLOCK_3',
-        equation: 'Siri',
-        skinfolds: { triceps: 12, suprailiac: 13, thigh: 17 },
-        perimeters: { waist: 65, abdomen: 70, hips: 96, rightThigh: 54.5, rightArm: 26.5 },
-        notes: 'Excelente evolução! Redução de 2kg de gordura e manutenção de massa magra.',
-      },
-      {
-        clientId: juliana.id,
-        date: subDays(today, 30),
-        weight: 67.5,
-        height: 170,
-        bodyFatPercentage: 18.2,
-        leanMass: 55.21,
-        fatMass: 12.29,
-        bodyDensity: 1.061,
-        protocol: 'POLLOCK_7',
-        equation: 'Siri',
-        skinfolds: { triceps: 10, subscapular: 11, pectoral: 8, axillary: 9, suprailiac: 10, abdominal: 12, thigh: 14 },
-        perimeters: { waist: 66, abdomen: 72, hips: 102, rightThigh: 59, rightArm: 30 },
-        notes: 'Composição corporal atleta. Foco em volume de deltoides e posteriores.',
-      },
-      {
-        clientId: leticia.id,
-        date: subDays(today, 15),
-        weight: 56.0,
-        height: 162,
-        bodyFatPercentage: 22.0,
-        leanMass: 43.68,
-        fatMass: 12.32,
-        protocol: 'POLLOCK_3',
-        skinfolds: { triceps: 11, suprailiac: 12, thigh: 16 },
-        perimeters: { waist: 64, hips: 94, rightThigh: 52, rightArm: 25 },
-        notes: 'Avaliação trimestral da consultoria online.',
-      },
-    ],
-  });
-  console.log('✅ Avaliações Físicas cadastradas');
-
-  // ──────────────────────────────────────────
-  // 11. Templates de Treino & Fichas A/B/C
-  // ──────────────────────────────────────────
-  await prisma.workoutTemplate.deleteMany({
-    where: { userId: { in: [trainerVivi.id, trainerCarlos.id] } },
-  });
-  await prisma.workoutTemplate.createMany({
-    data: [
-      {
-        userId: trainerVivi.id,
-        name: 'Hipertrofia Feminina A/B/C',
-        description: 'Divisão A (Inferiores foco Quadríceps), B (Superiores + Core), C (Glúteos e Posterior).',
-        structure: {
-          days: ['A', 'B', 'C'],
-          focus: 'Glúteos, Quadríceps e Dorsais',
-          targetAudience: 'Feminino Intermediário/Avançado',
-        },
-      },
-      {
-        userId: trainerVivi.id,
-        name: 'Emagrecimento Full Body 30min',
-        description: 'Treino metabólico em circuito com blocos Bi-Set.',
-        structure: {
-          duration: 30,
-          type: 'Bi-Set Circuit',
-          circuits: 3,
-        },
-      },
-      {
-        userId: trainerCarlos.id,
-        name: 'Powerlifting Base Linear 5x5',
-        description: 'Foco em força pura: Agachamento, Supino e Levantamento Terra.',
-        structure: {
-          frequency: '3x/semana',
-          rpeTarget: '8-9',
-          sets: 5,
-          reps: 5,
-        },
-      },
-    ],
-  });
-  console.log('✅ Templates de Treino cadastrados');
-
-  // Criar WorkoutSheet para Ana Luísa, Juliana e Letícia
-  const exMap = new Map(createdExercises.map((e) => [e.name, e.id]));
-
-  const sheetAna = await prisma.workoutSheet.create({
-    data: {
-      userId: trainerVivi.id,
-      clientId: ana1.id,
-      name: 'Ficha Hipertrofia & Definição 2026',
-      active: true,
-      expiresAt: addDays(today, 45),
-      workouts: {
-        create: [
-          {
-            letter: 'A',
-            name: 'Treino A - Quadríceps & Peitoral',
-            orderIndex: 0,
-            blocks: {
-              create: [
-                {
-                  type: 'REGULAR',
-                  orderIndex: 0,
-                  restTimeSeconds: 60,
-                  exercises: {
-                    create: [
-                      {
-                        exerciseId: exMap.get('Agachamento Livre'),
-                        exerciseName: 'Agachamento Livre',
-                        gifUrl: 'https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=300',
-                        sets: 4,
-                        reps: '10-12',
-                        suggestedLoadKg: 30,
-                        executionNotes: 'Descer até 90º com coluna neutra e joelhos alinhados com a ponta dos pés.',
-                        orderIndex: 0,
-                      },
-                    ],
-                  },
-                },
-                {
-                  type: 'BISET',
-                  orderIndex: 1,
-                  restTimeSeconds: 45,
-                  exercises: {
-                    create: [
-                      {
-                        exerciseId: exMap.get('Leg Press 45º'),
-                        exerciseName: 'Leg Press 45º',
-                        gifUrl: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=300',
-                        sets: 3,
-                        reps: '12-15',
-                        suggestedLoadKg: 80,
-                        orderIndex: 0,
-                      },
-                      {
-                        exerciseId: exMap.get('Cadeira Extensora'),
-                        exerciseName: 'Cadeira Extensora',
-                        gifUrl: 'https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=300',
-                        sets: 3,
-                        reps: '12-15 com pico de 2s',
-                        suggestedLoadKg: 35,
-                        orderIndex: 1,
-                      },
-                    ],
-                  },
-                },
-              ],
-            },
-          },
-          {
-            letter: 'B',
-            name: 'Treino B - Glúteos & Costas',
-            orderIndex: 1,
-            blocks: {
-              create: [
-                {
-                  type: 'REGULAR',
-                  orderIndex: 0,
-                  restTimeSeconds: 60,
-                  exercises: {
-                    create: [
-                      {
-                        exerciseId: exMap.get('Elevação Pélvica com Barra'),
-                        exerciseName: 'Elevação Pélvica com Barra',
-                        gifUrl: 'https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=300',
-                        sets: 4,
-                        reps: '10-12',
-                        suggestedLoadKg: 60,
-                        executionNotes: 'Segurar 2 segundos em cima com contração máxima.',
-                        orderIndex: 0,
-                      },
-                    ],
-                  },
-                },
-                {
-                  type: 'TRISET',
-                  orderIndex: 1,
-                  restTimeSeconds: 60,
-                  exercises: {
-                    create: [
-                      {
-                        exerciseId: exMap.get('Puxada Alta Frontal'),
-                        exerciseName: 'Puxada Alta Frontal',
-                        sets: 3,
-                        reps: '10-12',
-                        suggestedLoadKg: 35,
-                        orderIndex: 0,
-                      },
-                      {
-                        exerciseId: exMap.get('Remada Baixa no Triângulo'),
-                        exerciseName: 'Remada Baixa no Triângulo',
-                        sets: 3,
-                        reps: '10-12',
-                        suggestedLoadKg: 30,
-                        orderIndex: 1,
-                      },
-                      {
-                        exerciseId: exMap.get('Prancha Abdominal Isométrica'),
-                        exerciseName: 'Prancha Abdominal Isométrica',
-                        sets: 3,
-                        reps: '45s',
-                        orderIndex: 2,
-                      },
-                    ],
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      },
-    },
-    include: {
-      workouts: {
-        include: {
-          blocks: {
-            include: {
-              exercises: true,
-            },
-          },
-        },
-      },
-    },
-  });
-
-  const sheetLeticia = await prisma.workoutSheet.create({
-    data: {
-      userId: trainerVivi.id,
-      clientId: leticia.id,
-      name: 'Consultoria Online - Ficha Condomínio',
-      active: true,
-      expiresAt: addDays(today, 60),
-      workouts: {
-        create: [
-          {
-            letter: 'A',
-            name: 'Full Body A - Ênfase Inferiores',
-            orderIndex: 0,
-            blocks: {
-              create: [
-                {
-                  type: 'REGULAR',
-                  orderIndex: 0,
-                  restTimeSeconds: 60,
-                  exercises: {
-                    create: [
-                      {
-                        exerciseId: exMap.get('Agachamento Búlgaro com Halteres e Isometria'),
-                        exerciseName: 'Agachamento Búlgaro com Halteres e Isometria',
-                        sets: 3,
-                        reps: '10 cada perna',
-                        suggestedLoadKg: 10,
-                        executionNotes: 'Assistir ao vídeo customizado anexado antes da execução.',
-                        orderIndex: 0,
-                      },
-                    ],
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      },
-    },
-    include: {
-      workouts: true,
-    },
-  });
-
-  console.log(`✅ Workout Sheets criadas (Ana: ${sheetAna.id}, Letícia: ${sheetLeticia.id})`);
-
-  // ──────────────────────────────────────────
-  // 12. Student Sessions & Logs de Treino (Heatmap Data)
-  // ──────────────────────────────────────────
-  await prisma.studentSession.deleteMany({ where: { clientId: { in: allClientIds } } });
-  const studentSessionLogs = [];
-  // Gera 20 sessões concluídas no último mês para alimentar o Heatmap
-  for (let i = 1; i <= 24; i += 2) {
-    studentSessionLogs.push({
-      clientId: ana1.id,
-      workoutId: sheetAna.workouts[0]?.id,
-      workoutName: i % 4 === 0 ? 'Treino B - Glúteos & Costas' : 'Treino A - Quadríceps & Peitoral',
-      durationSeconds: 1800 + Math.floor(Math.random() * 600),
-      completedAt: subDays(today, i),
-      loads: {
-        'Agachamento Livre': [30, 32.5, 35, 35],
-        'Leg Press 45º': [80, 90, 90],
-      },
-    });
-    studentSessionLogs.push({
-      clientId: juliana.id,
-      workoutName: 'Treino A - Força e Hipertrofia',
-      durationSeconds: 3200,
-      completedAt: subDays(today, i),
-      loads: {
-        'Elevação Pélvica com Barra': [70, 75, 80, 80],
-      },
-    });
-    studentSessionLogs.push({
-      clientId: leticia.id,
-      workoutId: sheetLeticia.workouts[0]?.id,
-      workoutName: 'Full Body A - Ênfase Inferiores',
-      durationSeconds: 2400,
-      completedAt: subDays(today, i),
-      loads: {
-        'Agachamento Búlgaro com Halteres e Isometria': [10, 12, 12],
-      },
+async function seedExercises(viviId: string, carlosId: string): Promise<void> {
+  for (const [
+    id,
+    name,
+    bodyPart,
+    targetMuscle,
+    equipment,
+    gif,
+  ] of GLOBAL_EXERCISES) {
+    const data = {
+      name,
+      bodyPart,
+      targetMuscle,
+      equipment,
+      gifUrl: `https://pub-r2.com/exercises/${gif}.gif`,
+      userId: null,
+    };
+    await prisma.exercise.upsert({
+      where: { id },
+      update: data,
+      create: { id, ...data },
     });
   }
-  await prisma.studentSession.createMany({ data: studentSessionLogs });
-  console.log(`✅ ${studentSessionLogs.length} Student Sessions geradas para Heatmap`);
-
-  // ──────────────────────────────────────────
-  // 13. Agendamentos: Sessões e Eventos Recorrentes (RFC 5545)
-  // ──────────────────────────────────────────
-  await prisma.session.deleteMany({
-    where: { userId: { in: [trainerVivi.id, trainerCarlos.id] } },
-  });
-  await prisma.sessionException.deleteMany({});
-  await prisma.recurringEvent.deleteMany({
-    where: { userId: { in: [trainerVivi.id, trainerCarlos.id] } },
-  });
-
-  // Sessões avulsas passadas e futuras
-  await prisma.session.createMany({
+  await prisma.exercise.createMany({
     data: [
       {
-        userId: trainerVivi.id,
-        clientId: ana1.id,
-        linkedWorkoutId: sheetAna.workouts[0]?.id,
-        date: subDays(today, 2),
-        durationMinutes: 30,
-        type: 'In-Person',
-        category: 'Workout',
-        completed: true,
-        cancelled: false,
-        notes: 'Treino excelente, aumentou carga no agachamento.',
+        id: seedId("exercise:bulgarian"),
+        name: "Agachamento Búlgaro com Halteres e Isometria",
+        bodyPart: "Pernas",
+        targetMuscle: "Glúteo Máximo e Quadríceps",
+        equipment: "Halteres",
+        gifUrl: `${PHOTO}/photo-1574680096145-d05b474e2155?w=300`,
+        videoUrl: `${CDN}/videos/bulgarian-squat-vivi.mp4`,
+        userId: viviId,
       },
       {
-        userId: trainerVivi.id,
-        clientId: adriana.id,
-        date: subDays(today, 1),
-        durationMinutes: 30,
-        type: 'In-Person',
-        category: 'Workout',
-        completed: true,
-        cancelled: false,
-        notes: 'Sem queixas de dor lombar.',
+        id: seedId("exercise:elevacao-pelvica"),
+        name: "Elevação Pélvica com Barra",
+        bodyPart: "Pernas",
+        targetMuscle: "Glúteos",
+        equipment: "Barra",
+        userId: viviId,
       },
       {
-        userId: trainerVivi.id,
-        clientId: cassia.id,
-        date: addDays(today, 1),
-        durationMinutes: 30,
-        type: 'In-Person',
-        category: 'Workout',
-        completed: false,
-        cancelled: false,
-        notes: 'Treino de membros inferiores programado.',
+        id: seedId("exercise:facepull"),
+        name: "Face Pull com Rotação Externa no Cabo",
+        bodyPart: "Ombros",
+        targetMuscle: "Manguito Rotador / Deltoide Posterior",
+        equipment: "Polia",
+        gifUrl: `${PHOTO}/photo-1584735935682-2f2b69dff9d2?w=300`,
+        videoUrl: `${CDN}/videos/facepull-carlos.mp4`,
+        userId: carlosId,
       },
+    ],
+  });
+}
+
+// ─── 3. Plans ────────────────────────────────────────────────────────────────
+
+type PlanKey =
+  | "p2x30"
+  | "p3x30"
+  | "p4x60"
+  | "p3x60"
+  | "cBasica"
+  | "cCompleta"
+  | "cTrimestral";
+
+async function seedPlans(
+  viviId: string,
+  carlosId: string,
+): Promise<Record<PlanKey, string>> {
+  const {
+    AI_WHATSAPP_BOT,
+    VIDEO_EXERCISE_UPLOAD,
+    AUTOMATED_PIX,
+    POSTURE_CORRECTION,
+    ADVANCED_METRICS,
+  } = PlanFeatureKey;
+  const plans: Array<
+    [PlanKey, string, Omit<Prisma.PlanCreateManyInput, "id" | "userId">]
+  > = [
+    [
+      "p2x30",
+      viviId,
       {
-        userId: trainerVivi.id,
-        clientId: juliana.id,
-        date: addDays(today, 2),
+        type: "PRESENCIAL",
+        name: "Presencial 2x 30min",
+        sessionsPerWeek: 2,
+        durationMinutes: 30,
+        price: 350,
+      },
+    ],
+    [
+      "p3x30",
+      viviId,
+      {
+        type: "PRESENCIAL",
+        name: "Presencial 3x 30min",
+        sessionsPerWeek: 3,
+        durationMinutes: 30,
+        price: 450,
+      },
+    ],
+    [
+      "p4x60",
+      viviId,
+      {
+        type: "PRESENCIAL",
+        name: "Presencial 4x 60min",
+        sessionsPerWeek: 4,
         durationMinutes: 60,
-        type: 'In-Person',
-        category: 'Workout',
-        completed: false,
-        cancelled: false,
-        notes: 'Sessão de 60min com teste de carga máxima.',
-      },
-      // Sessão cancelada
-      {
-        userId: trainerVivi.id,
-        clientId: adriana.id,
-        date: subDays(today, 7),
-        durationMinutes: 30,
-        type: 'In-Person',
-        category: 'Workout',
-        completed: false,
-        cancelled: true,
-        notes: 'Cancelado pelo aluno com aviso prévio.',
-      },
-      // Sessão de Avaliação
-      {
-        userId: trainerVivi.id,
-        clientId: leticia.id,
-        date: subDays(today, 15),
-        durationMinutes: 45,
-        type: 'Online',
-        category: 'Evaluation',
-        completed: true,
-        cancelled: false,
-        notes: 'Reavaliação física e ajuste de planilha trimestral.',
+        price: 650,
+        features: [AUTOMATED_PIX, POSTURE_CORRECTION],
       },
     ],
+    [
+      "p3x60",
+      viviId,
+      {
+        type: "PRESENCIAL",
+        name: "Presencial 3x 60min",
+        sessionsPerWeek: 3,
+        durationMinutes: 60,
+        price: 550,
+      },
+    ],
+    [
+      "cBasica",
+      viviId,
+      {
+        type: "CONSULTORIA",
+        name: "Consultoria Básica Online",
+        sessionsPerWeek: 1,
+        price: 180,
+      },
+    ],
+    [
+      "cCompleta",
+      viviId,
+      {
+        type: "CONSULTORIA",
+        name: "Consultoria Completa Online",
+        sessionsPerWeek: 2,
+        price: 280,
+        features: [AI_WHATSAPP_BOT, VIDEO_EXERCISE_UPLOAD],
+      },
+    ],
+    [
+      "cTrimestral",
+      carlosId,
+      {
+        type: "CONSULTORIA",
+        name: "Consultoria Powerlifting Trimestral",
+        sessionsPerWeek: 2,
+        price: 500,
+        features: [ADVANCED_METRICS, VIDEO_EXERCISE_UPLOAD],
+      },
+    ],
+  ];
+  await prisma.plan.createMany({
+    data: plans.map(([key, userId, plan]) => ({
+      id: seedId(`plan:${key}`),
+      userId,
+      ...plan,
+    })),
   });
+  return Object.fromEntries(
+    plans.map(([key]) => [key, seedId(`plan:${key}`)]),
+  ) as Record<PlanKey, string>;
+}
 
-  // Eventos Recorrentes (RRULE) para clientes semanais
-  const recAna = await prisma.recurringEvent.create({
-    data: {
-      userId: trainerVivi.id,
-      clientId: ana1.id,
-      rrule: 'FREQ=WEEKLY;BYDAY=TU,TH;COUNT=24',
-      timezone: 'America/Sao_Paulo',
-      dtstart: setMinutes(setHours(today, 8), 0),
-      durationMinutes: 30,
-      type: 'In-Person',
-      category: 'Workout',
-      linkedWorkoutId: sheetAna.workouts[0]?.id,
-      notes: 'Presencial Terças e Quintas 08:00',
+// ─── 4. Clients and payments ─────────────────────────────────────────────────
+
+interface ClientSeed {
+  key: string;
+  name: string;
+  phone: string;
+  email: string;
+  born?: string;
+  goal: string;
+  modality: ClientModality;
+  status: ClientStatus;
+  plan?: PlanKey;
+  /** Days until the paid period ends; set together with a PAID payment. */
+  paidDays?: number;
+  checkInFreq?: string;
+  notes?: string;
+  avatar?: string;
+  deleted?: boolean;
+}
+
+const { PRESENCIAL, ONLINE, HYBRID } = ClientModality;
+const { ACTIVE, PAUSED, OVERDUE, LEAD } = ClientStatus;
+
+const VIVI_CLIENTS: ClientSeed[] = [
+  {
+    key: "ana",
+    name: "Ana Luísa Timmen",
+    phone: "+5551991849376",
+    email: "ana.timmen@viviops.client",
+    born: "2009-09-24",
+    goal: "Manter massa magra e emagrecer",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p2x30",
+    paidDays: 25,
+    checkInFreq: "2x/semana",
+    notes: "Aluna muito dedicada. Preferência por treinos matinais.",
+    avatar: `${PHOTO}/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200`,
+  },
+  {
+    key: "adriana",
+    name: "Adriana Parada",
+    phone: "+5551992641343",
+    email: "adriana.parada@viviops.client",
+    born: "1988-09-30",
+    goal: "Emagrecimento e ganho de força",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p2x30",
+    paidDays: 15,
+    checkInFreq: "2x/semana",
+    notes: "Histórico de dor lombar; evitar flexão de tronco excessiva.",
+    avatar: `${PHOTO}/photo-1544005313-94ddf0286df2?auto=format&fit=crop&q=80&w=200`,
+  },
+  {
+    key: "angelica",
+    name: "Angélica Eltz",
+    phone: "+5551991286543",
+    email: "angelica.eltz@viviops.client",
+    born: "1969-08-03",
+    goal: "Emagrecer e manter massa magra na menopausa",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p3x30",
+    checkInFreq: "3x/semana",
+    notes: "Foco em fortalecimento ósseo e muscular.",
+  },
+  {
+    key: "cassia",
+    name: "Cássia Franck Ferreira",
+    phone: "+5551981760721",
+    email: "cassia.franck@viviops.client",
+    born: "1992-06-01",
+    goal: "Emagrecer com saúde e hipertrofia de glúteos",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p3x30",
+    paidDays: 20,
+    notes: "Advogada, rotina corrida. Treinos objetivos e intensos.",
+  },
+  {
+    key: "cristiane-martin",
+    name: "Cristiane Veridiana Martin",
+    phone: "+5551991313787",
+    email: "cristiane.martin@viviops.client",
+    born: "1975-07-29",
+    goal: "Emagrecer e manter massa magra",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p2x30",
+    notes: "Excelente consistência nas terças e quintas.",
+  },
+  {
+    key: "cristiane-grings",
+    name: "Cristiane Adam Grings",
+    phone: "+5551991050808",
+    email: "cristiane.grings@viviops.client",
+    born: "1982-11-14",
+    goal: "Emagrecer, manter massa magra, melhorar lipedema",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p2x30",
+    notes: "Cuidado especial com retenção hídrica.",
+  },
+  {
+    key: "cristiane-roxo",
+    name: "Cristiane Roxo",
+    phone: "+5551999988112",
+    email: "cristiane.roxo@viviops.client",
+    born: "1978-04-12",
+    goal: "Tonificação e condicionamento cardiovascular",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p3x30",
+    notes: "Treina sempre com a amiga Fabiane.",
+  },
+  {
+    key: "fabiane",
+    name: "Fabiane Bitencourt",
+    phone: "+5551988877223",
+    email: "fabiane.bitencourt@viviops.client",
+    born: "1980-01-20",
+    goal: "Hipertrofia de membros inferiores",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p3x30",
+    notes: "Boa resposta neuromuscular.",
+  },
+  {
+    key: "graziela",
+    name: "Graziela Larruscaim",
+    phone: "+5551997766334",
+    email: "graziela.larruscaim@viviops.client",
+    born: "1985-05-18",
+    goal: "Saúde geral e mobilidade articular",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p2x30",
+    notes: "Alongamentos e mobilidade no início do treino.",
+  },
+  {
+    key: "grazielle",
+    name: "Grazielle Pimentel",
+    phone: "+5551996655445",
+    email: "grazielle.pimentel@viviops.client",
+    born: "1990-10-05",
+    goal: "Definição muscular e emagrecimento",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p2x30",
+    notes: "Preferência por Bi-Sets para otimizar os 30 minutos.",
+  },
+  {
+    key: "juliana",
+    name: "Juliana Souza",
+    phone: "+5551995544332",
+    email: "juliana.souza@viviops.client",
+    born: "1995-12-15",
+    goal: "Hipertrofia intensa e definição",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p4x60",
+    paidDays: 28,
+    notes: "Treina 4 vezes na semana. Carga progressiva.",
+  },
+  {
+    key: "gabriela",
+    name: "Gabriela Silveira",
+    phone: "+5551994433221",
+    email: "gabriela.silveira@viviops.client",
+    born: "1993-03-22",
+    goal: "Preparação para corrida e força",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p3x60",
+    notes: "Corredora amadora de 10km.",
+  },
+  {
+    key: "leticia",
+    name: "Letícia Oliveira",
+    phone: "+5551993322110",
+    email: "leticia.oliveira@viviops.client",
+    born: "1991-07-11",
+    goal: "Consultoria online para academia de condomínio",
+    modality: ONLINE,
+    status: ACTIVE,
+    plan: "cCompleta",
+    paidDays: 10,
+    notes: "Utiliza o PWA para executar os treinos e registrar cargas.",
+  },
+  {
+    key: "mariana",
+    name: "Mariana Duarte",
+    phone: "+5551992211009",
+    email: "mariana.duarte@viviops.client",
+    born: "1987-09-08",
+    goal: "Consultoria online - Treino em casa com halteres",
+    modality: ONLINE,
+    status: PAUSED,
+    plan: "cCompleta",
+    notes: "Plano pausado por 30 dias após procedimento cirúrgico.",
+  },
+  {
+    key: "rodrigo",
+    name: "Rodrigo Mendes",
+    phone: "+5551991100998",
+    email: "rodrigo.mendes@viviops.client",
+    born: "1984-02-17",
+    goal: "Ganho de massa magra e postura",
+    modality: ONLINE,
+    status: OVERDUE,
+    plan: "cBasica",
+    notes: "Mensalidade pendente de renovação.",
+  },
+  {
+    key: "thiago",
+    name: "Thiago Albuquerque",
+    phone: "+5551990099887",
+    email: "thiago.albuquerque@viviops.client",
+    born: "1989-08-30",
+    goal: "Performance e Hipertrofia",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p4x60",
+    notes: "Treinos pesados de força e potência.",
+  },
+  {
+    key: "vanessa",
+    name: "Vanessa Camargo",
+    phone: "+5551989988776",
+    email: "vanessa.camargo@viviops.client",
+    born: "1994-11-25",
+    goal: "Híbrido: 2x presencial + 1x ficha no app",
+    modality: HYBRID,
+    status: ACTIVE,
+    plan: "p2x30",
+    notes: "Excelente aderência e consistência.",
+  },
+  {
+    key: "lucas",
+    name: "Lucas Fontana",
+    phone: "+5551988877665",
+    email: "lucas.fontana@viviops.client",
+    born: "1996-06-19",
+    goal: "Híbrido: Reavaliação presencial + fichas online",
+    modality: HYBRID,
+    status: ACTIVE,
+    plan: "cCompleta",
+    notes: "Foco em evolução de cargas no agachamento e supino.",
+  },
+  {
+    key: "patricia",
+    name: "Patrícia Helena",
+    phone: "+5551987766554",
+    email: "patricia.helena@viviops.client",
+    born: "1976-03-14",
+    goal: "Qualidade de vida e fortalecimento muscular",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p3x30",
+    notes: "Aluna assídua há mais de 1 ano.",
+  },
+  {
+    key: "fernanda",
+    name: "Fernanda Souza Lead",
+    phone: "+5551986655443",
+    email: "fernanda.souza.lead@viviops.client",
+    born: "1998-04-20",
+    goal: "Emagrecimento e consultoria inicial",
+    modality: ONLINE,
+    status: LEAD,
+    notes:
+      "Lead captado via formulário do Instagram. Enviado link de anamnese.",
+  },
+  // Soft-deleted: try the resurrection of section 7 with POST /public/vivi-personal/leads and this e-mail.
+  {
+    key: "ex-aluna",
+    name: "Beatriz Antiga Aluna",
+    phone: "+5551985544332",
+    email: "beatriz.antiga@viviops.client",
+    goal: "Retorno aos treinos",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "p2x30",
+    notes: "Cancelou o plano; registro mantido para histórico.",
+    deleted: true,
+  },
+];
+
+const CARLOS_CLIENTS: ClientSeed[] = [
+  {
+    key: "bruno",
+    name: "Bruno Meirelles",
+    phone: "+5551981112233",
+    email: "bruno.meirelles@elitefit.client",
+    goal: "Hipertrofia e Powerlifting",
+    modality: PRESENCIAL,
+    status: ACTIVE,
+    plan: "cTrimestral",
+    paidDays: 60,
+  },
+  {
+    key: "camila",
+    name: "Camila Peixoto",
+    phone: "+5551982223344",
+    email: "camila.peixoto@elitefit.client",
+    goal: "Consultoria de Corrida e Resistência",
+    modality: ONLINE,
+    status: ACTIVE,
+    plan: "cTrimestral",
+  },
+  {
+    key: "marcos",
+    name: "Marcos Vinicius Lead",
+    phone: "+5551983334455",
+    email: "marcos.lead@elitefit.client",
+    goal: "Preparação para teste de aptidão física (TAF)",
+    modality: PRESENCIAL,
+    status: LEAD,
+  },
+];
+
+const PLAN_PRICES: Record<PlanKey, number> = {
+  p2x30: 350,
+  p3x30: 450,
+  p4x60: 650,
+  p3x60: 550,
+  cBasica: 180,
+  cCompleta: 280,
+  cTrimestral: 500,
+};
+
+const clientId = (key: string): string => seedId(`client:${key}`);
+
+function subscriptionOf(seed: ClientSeed): SubscriptionStatus | null {
+  if (seed.deleted) return SubscriptionStatus.CANCELED;
+  return seed.paidDays === undefined ? null : SubscriptionStatus.ACTIVE;
+}
+
+async function seedClients(
+  userId: string,
+  seeds: ClientSeed[],
+  plans: Record<PlanKey, string>,
+): Promise<void> {
+  await prisma.client.createMany({
+    data: seeds.map((seed) => ({
+      id: clientId(seed.key),
+      userId,
+      name: seed.name,
+      phone: seed.phone,
+      // crm normalises e-mails before every lookup; a mixed-case row would never match.
+      email: seed.email.trim().toLowerCase(),
+      dateOfBirth: seed.born ? new Date(seed.born) : null,
+      goal: seed.goal,
+      modality: seed.modality,
+      status: seed.status,
+      planId: seed.plan ? plans[seed.plan] : null,
+      checkInFreq: seed.checkInFreq ?? null,
+      notes: seed.notes ?? null,
+      avatar: seed.avatar ?? null,
+      subscriptionStatus: subscriptionOf(seed),
+      currentPeriodEnd:
+        seed.paidDays === undefined ? null : at(seed.paidDays, 23, 59),
+      deletedAt: seed.deleted ? subDays(new Date(), 40) : null,
+    })),
+  });
+  const methods = ["PIX", "CARD", "CASH"];
+  await prisma.payment.createMany({
+    data: seeds
+      .filter((seed) => seed.paidDays !== undefined && seed.plan)
+      .map((seed, index) => ({
+        id: seedId(`payment:${seed.key}`),
+        userId,
+        clientId: clientId(seed.key),
+        provider: PaymentProvider.MANUAL,
+        status: PaymentStatus.PAID,
+        amount: PLAN_PRICES[seed.plan as PlanKey],
+        method: methods[index % methods.length],
+        date: subDays(new Date(), 30 - (seed.paidDays as number)),
+        periodEnd: at(seed.paidDays as number, 23, 59),
+        notes: "Mensalidade registrada manualmente.",
+      })),
+  });
+}
+
+// ─── 5. Sheets, templates and student sessions ───────────────────────────────
+
+/** Explicit ids: events (workoutSegmentId) and student sessions (executionData) point at them. */
+const ANA_SHEET: WorkoutStructureInputDto = {
+  workouts: [
+    {
+      id: "ana-treino-a",
+      letter: "A",
+      name: "Quadríceps & Peitoral",
+      orderIndex: 0,
+      blocks: [
+        {
+          id: "ana-a-b1",
+          type: "REGULAR",
+          orderIndex: 0,
+          restTimeSeconds: 60,
+          exercises: [
+            {
+              id: "ana-a-squat",
+              exerciseId: "global-squat",
+              exerciseName: "Agachamento Livre",
+              gifUrl: "https://pub-r2.com/exercises/squat.gif",
+              sets: 4,
+              reps: "10-12",
+              suggestedLoadKg: 30,
+              executionNotes:
+                "Descer até 90º com coluna neutra e joelhos alinhados com a ponta dos pés.",
+            },
+          ],
+        },
+        {
+          id: "ana-a-b2",
+          type: "BISET",
+          orderIndex: 1,
+          restTimeSeconds: 45,
+          exercises: [
+            {
+              id: "ana-a-legpress",
+              exerciseId: "global-leg-press",
+              exerciseName: "Leg Press 45º",
+              sets: 3,
+              reps: "12-15",
+              suggestedLoadKg: 80,
+            },
+            {
+              id: "ana-a-bench",
+              exerciseId: "global-bench-press",
+              exerciseName: "Supino Reto com Barra",
+              sets: 3,
+              reps: "10-12",
+              suggestedLoadKg: 20,
+              orderIndex: 1,
+            },
+          ],
+        },
+      ],
     },
-  });
-
-  const recJuliana = await prisma.recurringEvent.create({
-    data: {
-      userId: trainerVivi.id,
-      clientId: juliana.id,
-      rrule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=36',
-      timezone: 'America/Sao_Paulo',
-      dtstart: setMinutes(setHours(today, 17), 0),
-      durationMinutes: 60,
-      type: 'In-Person',
-      category: 'Workout',
-      notes: 'Presencial Seg/Qua/Sex 17:00',
+    {
+      id: "ana-treino-b",
+      letter: "B",
+      name: "Glúteos & Costas",
+      orderIndex: 1,
+      blocks: [
+        {
+          id: "ana-b-b1",
+          type: "REGULAR",
+          orderIndex: 0,
+          restTimeSeconds: 90,
+          exercises: [
+            {
+              id: "ana-b-pelvica",
+              exerciseId: seedId("exercise:elevacao-pelvica"),
+              exerciseName: "Elevação Pélvica com Barra",
+              sets: 4,
+              reps: "8-10",
+              suggestedLoadKg: 60,
+            },
+            {
+              id: "ana-b-deadlift",
+              exerciseId: "global-deadlift",
+              exerciseName: "Levantamento Terra",
+              sets: 3,
+              reps: "8",
+              suggestedLoadKg: 40,
+              orderIndex: 1,
+            },
+          ],
+        },
+      ],
     },
-  });
+  ],
+};
 
-  // Exceções de Sessão Recorrente (SessionException)
-  // 1. Cancelamento
-  await prisma.sessionException.create({
-    data: {
-      recurringEventId: recAna.id,
-      originalStartTime: setMinutes(setHours(addDays(today, 7), 8), 0),
-      cancelled: true,
-      completed: false,
-      notes: 'Cancelado a pedido da aluna para consulta médica.',
+const LETICIA_SHEET: WorkoutStructureInputDto = {
+  workouts: [
+    {
+      id: "leticia-full-a",
+      letter: "A",
+      name: "Full Body A - Ênfase Inferiores",
+      blocks: [
+        {
+          id: "leticia-a-b1",
+          type: "REGULAR",
+          restTimeSeconds: 60,
+          exercises: [
+            {
+              id: "leticia-a-squat",
+              exerciseId: "global-squat",
+              exerciseName: "Agachamento Goblet",
+              sets: 3,
+              reps: "12",
+              suggestedLoadKg: 12,
+            },
+            {
+              id: "leticia-a-press",
+              exerciseId: "global-shoulder-press",
+              exerciseName: "Desenvolvimento com Halteres",
+              sets: 3,
+              reps: "10-12",
+              suggestedLoadKg: 6,
+              orderIndex: 1,
+            },
+          ],
+        },
+      ],
     },
-  });
+  ],
+};
 
-  // 2. Reagendamento com novo horário
-  await prisma.sessionException.create({
-    data: {
-      recurringEventId: recJuliana.id,
-      originalStartTime: setMinutes(setHours(addDays(today, 2), 17), 0),
-      cancelled: false,
-      newStartTime: setMinutes(setHours(addDays(today, 2), 18), 30),
-      durationMinutes: 45,
-      completed: false,
-      notes: 'Horário ajustado para 18:30 devido a reunião de trabalho.',
+const template = (
+  description: string,
+  tags: string[],
+  letter: string,
+  name: string,
+  exerciseId: string,
+  exerciseName: string,
+): WorkoutStructureInputDto => ({
+  description,
+  tags,
+  workouts: [
+    {
+      letter,
+      name,
+      blocks: [
+        {
+          type: "REGULAR",
+          exercises: [{ exerciseId, exerciseName, sets: 5, reps: "5" }],
+        },
+      ],
     },
-  });
+  ],
+});
 
-  // 3. Exceção com conclusão realizada
-  await prisma.sessionException.create({
-    data: {
-      recurringEventId: recAna.id,
-      originalStartTime: setMinutes(setHours(subDays(today, 5), 8), 0),
-      cancelled: false,
-      newStartTime: setMinutes(setHours(subDays(today, 5), 7), 30),
-      durationMinutes: 30,
-      completed: true,
-      notes: 'Adiantado para 07:30 e realizado com sucesso.',
-    },
-  });
-  console.log('✅ Sessões pontuais, Eventos Recorrentes (RRULE) e Exceções configurados');
+const structure = (input: WorkoutStructureInputDto): Prisma.InputJsonValue =>
+  toJsonValue(buildWorkoutStructure(input));
 
-  // ──────────────────────────────────────────
-  // 14. Pagamentos Manuais (ManualPayment)
-  // ──────────────────────────────────────────
-  await prisma.manualPayment.deleteMany({
-    where: { userId: { in: [trainerVivi.id, trainerCarlos.id] } },
+async function seedSheets(viviId: string, carlosId: string): Promise<void> {
+  const sheet = (
+    key: string,
+    userId: string,
+    name: string,
+    input: WorkoutStructureInputDto,
+    extra: Partial<Prisma.WorkoutSheetCreateManyInput>,
+  ) => ({
+    id: seedId(`sheet:${key}`),
+    userId,
+    name,
+    structure: structure(input),
+    ...extra,
   });
-  await prisma.manualPayment.createMany({
+  await prisma.workoutSheet.createMany({
     data: [
-      {
-        userId: trainerVivi.id,
-        clientId: ana1.id,
-        paymentType: 'MANUAL_PIX',
-        amount: 350.0,
-        validUntil: addDays(today, 25),
-        notes: 'Mensalidade paga via chave PIX bancária.',
-      },
-      {
-        userId: trainerVivi.id,
-        clientId: juliana.id,
-        paymentType: 'MANUAL_PIX',
-        amount: 650.0,
-        validUntil: addDays(today, 28),
-        notes: 'Plano 4x 60min pago pontualmente.',
-      },
-      {
-        userId: trainerVivi.id,
-        clientId: adriana.id,
-        paymentType: 'MANUAL_CASH',
-        amount: 350.0,
-        validUntil: addDays(today, 15),
-        notes: 'Recebido em dinheiro no estúdio.',
-      },
-      {
-        userId: trainerVivi.id,
-        clientId: leticia.id,
-        paymentType: 'MANUAL_CARD',
-        amount: 280.0,
-        validUntil: addDays(today, 30),
-        notes: 'Passado na máquina de cartão do estúdio (crédito à vista).',
-      },
-      {
-        userId: trainerCarlos.id,
-        clientId: createdCarlosClients[0].id,
-        paymentType: 'MANUAL_PIX',
-        amount: 500.0,
-        validUntil: addDays(today, 90),
-        notes: 'Trimestral pago via PIX com comprovante anexo.',
-      },
+      // Client sheets: at most one active per client (partial unique index).
+      sheet("ana", viviId, "Ficha Hipertrofia & Definição 2026", ANA_SHEET, {
+        clientId: clientId("ana"),
+        active: true,
+        expiresAt: at(45, 12),
+      }),
+      sheet("ana-antiga", viviId, "Ficha Adaptação 2025", LETICIA_SHEET, {
+        clientId: clientId("ana"),
+        active: false,
+        expiresAt: at(-30, 12),
+      }),
+      // Expires within 5 days: shows up in GET /workout-sheets/expiring.
+      sheet(
+        "leticia",
+        viviId,
+        "Consultoria Online - Ficha Condomínio",
+        LETICIA_SHEET,
+        { clientId: clientId("leticia"), active: true, expiresAt: at(3, 12) },
+      ),
+      // Templates: no client, always active.
+      sheet(
+        "tpl-hipertrofia",
+        viviId,
+        "Hipertrofia Feminina A/B/C",
+        {
+          ...ANA_SHEET,
+          description: "Divisão A/B com ênfase em inferiores.",
+          tags: ["hipertrofia", "feminino"],
+          workouts: ANA_SHEET.workouts.map((w) => ({
+            ...w,
+            id: undefined,
+            blocks: w.blocks.map((b) => ({
+              ...b,
+              id: undefined,
+              exercises: b.exercises.map((e) => ({ ...e, id: undefined })),
+            })),
+          })),
+        },
+        { isTemplate: true },
+      ),
+      sheet(
+        "tpl-emagrecimento",
+        viviId,
+        "Emagrecimento Full Body 30min",
+        template(
+          "Circuito de 30 minutos.",
+          ["emagrecimento", "30min"],
+          "A",
+          "Full Body",
+          "global-squat",
+          "Agachamento Livre",
+        ),
+        { isTemplate: true },
+      ),
+      sheet(
+        "tpl-powerlifting",
+        carlosId,
+        "Powerlifting Base Linear 5x5",
+        template(
+          "Progressão linear 5x5.",
+          ["força"],
+          "A",
+          "Agachamento / Supino",
+          "global-squat",
+          "Barbell Back Squat",
+        ),
+        { isTemplate: true },
+      ),
     ],
   });
-  console.log('✅ Pagamentos Manuais registrados (PIX, CASH, CARD)');
 
-  // ──────────────────────────────────────────
-  // 15. Notification Logs (WhatsApp & Email Queues)
-  // ──────────────────────────────────────────
-  await prisma.notificationLog.deleteMany({});
-  await prisma.notificationLog.createMany({
+  // Heatmap + lastLoadKg data: Ana executed workout A three times, Letícia once.
+  const anaLoads = (squat: number) => [
+    { workoutExerciseId: "ana-a-squat", loadKg: squat },
+    { workoutExerciseId: "ana-a-legpress", loadKg: 85 },
+    { workoutExerciseId: "ana-a-bench", loadKg: 20, completed: false },
+  ];
+  const session = (
+    key: string,
+    client: string,
+    sheetKey: string,
+    itemId: string,
+    workoutName: string,
+    daysAgo: number,
+    loads: ReturnType<typeof anaLoads>,
+  ) => ({
+    id: seedId(`student-session:${key}`),
+    clientId: clientId(client),
+    workoutName,
+    durationSeconds: 1800 + daysAgo * 30,
+    completedAt: at(-daysAgo, 7, 30),
+    executionData: toJsonValue(
+      buildExecutionData({
+        sheetId: seedId(`sheet:${sheetKey}`),
+        itemId,
+        loads,
+      }),
+    ),
+  });
+  await prisma.studentSession.createMany({
     data: [
-      {
-        tenantId: tenantVivi.id,
-        recipientPhone: ana1.phone,
-        templateType: 'WELCOME_ANAMNESIS',
-        status: 'SENT',
-        channel: 'WHATSAPP',
-      },
-      {
-        tenantId: tenantVivi.id,
-        recipientPhone: adriana.phone,
-        templateType: 'WORKOUT_REMINDER',
-        status: 'SENT',
-        channel: 'WHATSAPP',
-      },
-      {
-        tenantId: tenantVivi.id,
-        recipientPhone: cassia.phone,
-        templateType: 'PAYMENT_REMINDER',
-        status: 'QUEUED',
-        channel: 'WHATSAPP',
-      },
-      {
-        tenantId: tenantVivi.id,
-        recipientPhone: '+5551900000000',
-        templateType: 'WORKOUT_REMINDER',
-        status: 'FAILED',
-        channel: 'WHATSAPP',
-        error: 'Número de telefone inválido ou não registrado na rede WhatsApp.',
-      },
-      {
-        tenantId: tenantVivi.id,
-        recipientPhone: leticia.email,
-        templateType: 'WORKOUT_SHEET_UPDATED',
-        status: 'SENT',
-        channel: 'EMAIL',
-      },
-      {
-        tenantId: tenantElite.id,
-        recipientPhone: 'bounce@invalid-mail.com',
-        templateType: 'PAYMENT_REMINDER',
-        status: 'FAILED',
-        channel: 'EMAIL',
-        error: '550 5.1.1 User unknown / Mailbox does not exist.',
-      },
+      session(
+        "ana-1",
+        "ana",
+        "ana",
+        "ana-treino-a",
+        "Treino A - Quadríceps & Peitoral",
+        9,
+        anaLoads(30),
+      ),
+      session(
+        "ana-2",
+        "ana",
+        "ana",
+        "ana-treino-a",
+        "Treino A - Quadríceps & Peitoral",
+        5,
+        anaLoads(32.5),
+      ),
+      session(
+        "ana-3",
+        "ana",
+        "ana",
+        "ana-treino-a",
+        "Treino A - Quadríceps & Peitoral",
+        2,
+        anaLoads(35),
+      ),
+      session(
+        "leticia-1",
+        "leticia",
+        "leticia",
+        "leticia-full-a",
+        "Treino A - Full Body A - Ênfase Inferiores",
+        1,
+        [{ workoutExerciseId: "leticia-a-squat", loadKg: 14 }],
+      ),
     ],
   });
-  console.log('✅ Notification Logs (WhatsApp e Email) registrados');
+}
 
-  // ──────────────────────────────────────────
-  // 16. Password Reset Tokens
-  // ──────────────────────────────────────────
-  await prisma.passwordResetToken.deleteMany({});
-  await prisma.passwordResetToken.createMany({
+// ─── 6. Calendar ─────────────────────────────────────────────────────────────
+
+/** First `count` instants the rule really produces: an exception must replace one of them. */
+function occurrences(rrule: string, dtstart: Date, count: number): Date[] {
+  return expandRRuleForRange(
+    rrule,
+    dtstart,
+    TIMEZONE,
+    dtstart,
+    addDays(dtstart, 60),
+  ).slice(0, count);
+}
+
+async function seedCalendar(viviId: string, carlosId: string): Promise<void> {
+  const base = {
+    type: EventType.SESSION,
+    timezone: TIMEZONE,
+    sessionType: "In-Person",
+    category: "Workout",
+  };
+  const oneOff = (
+    key: string,
+    userId: string,
+    client: string,
+    date: Date,
+    extra: Partial<Prisma.EventCreateManyInput> = {},
+  ) => ({
+    ...base,
+    id: seedId(`event:${key}`),
+    userId,
+    clientId: clientId(client),
+    date,
+    durationMinutes: 30,
+    ...extra,
+  });
+
+  // Series master: `date` is DTSTART. Never listed as a row, only expanded.
+  const seriesRule = "FREQ=WEEKLY;BYDAY=MO,WE";
+  const seriesStart = at(-14, 9);
+  const seriesId = seedId("event:series-juliana");
+  const series = {
+    ...base,
+    id: seriesId,
+    userId: viviId,
+    clientId: clientId("juliana"),
+    date: seriesStart,
+    durationMinutes: 60,
+    rrule: seriesRule,
+    notes: "Treino fixo de segunda e quarta.",
+  };
+  const [first, second, third] = occurrences(seriesRule, seriesStart, 3);
+  // Exceptions copy the master's client / sessionType / category / duration / timezone; notes null = use the master's.
+  const exception = (
+    key: string,
+    original: Date,
+    extra: Partial<Prisma.EventCreateManyInput>,
+  ) => ({
+    ...base,
+    id: seedId(`event:${key}`),
+    userId: viviId,
+    clientId: clientId("juliana"),
+    parentEventId: seriesId,
+    originalStartTime: original,
+    date: original,
+    durationMinutes: 60,
+    ...extra,
+  });
+
+  const block = (
+    key: string,
+    userId: string,
+    title: string,
+    date: Date,
+    durationMinutes: number,
+    rrule: string | null,
+    notes: string,
+  ) => ({
+    id: seedId(`event:${key}`),
+    type: EventType.BLOCK,
+    userId,
+    clientId: null,
+    title,
+    date,
+    durationMinutes,
+    rrule,
+    timezone: TIMEZONE,
+    notes,
+  });
+
+  await prisma.event.createMany({
     data: [
-      // Token ativo e válido
-      {
-        userId: trainerVivi.id,
-        token: 'active-reset-token-vivi-123456',
-        expiresAt: addHours(today, 2),
-        used: false,
-      },
-      // Token já utilizado
-      {
-        userId: trainerCarlos.id,
-        token: 'used-reset-token-carlos-789012',
-        expiresAt: subDays(today, 1),
-        used: true,
-      },
-      // Token expirado sem uso
-      {
-        userId: trainerJuliana.id,
-        token: 'expired-reset-token-juliana-345678',
-        expiresAt: subDays(today, 3),
-        used: false,
-      },
+      oneOff("ana-past", viviId, "ana", at(-2, 8), {
+        status: EventStatus.COMPLETED,
+        workoutSheetId: seedId("sheet:ana"),
+        workoutSegmentId: "ana-treino-a",
+        notes: "Treino excelente, aumentou carga no agachamento.",
+      }),
+      oneOff("adriana-past", viviId, "adriana", at(-1, 8, 30), {
+        status: EventStatus.COMPLETED,
+        notes: "Sem queixas de dor lombar.",
+      }),
+      oneOff("cassia-next", viviId, "cassia", at(1, 10)),
+      oneOff("ana-next", viviId, "ana", at(2, 8), {
+        workoutSheetId: seedId("sheet:ana"),
+        workoutSegmentId: "ana-treino-b",
+      }),
+      oneOff("leticia-checkin", viviId, "leticia", at(3, 17), {
+        sessionType: "Online",
+        category: "Check-in",
+        durationMinutes: 20,
+      }),
+      oneOff("lucas-evaluation", viviId, "lucas", at(5, 15), {
+        category: "Evaluation",
+        durationMinutes: 60,
+      }),
+      oneOff("bruno-next", carlosId, "bruno", at(1, 18), {
+        durationMinutes: 60,
+      }),
+      series,
     ],
   });
-  console.log('✅ Password Reset Tokens criados (ativo, usado, expirado)');
+  await prisma.event.createMany({
+    data: [
+      exception("series-juliana-cancelled", first, {
+        status: EventStatus.CANCELLED,
+      }),
+      exception("series-juliana-moved", second, {
+        date: new Date(second.getTime() + 2 * 3_600_000),
+        notes: "Remarcado para duas horas mais tarde.",
+      }),
+      exception("series-juliana-done", third, {
+        status: EventStatus.COMPLETED,
+      }),
+      block(
+        "lunch",
+        viviId,
+        "Horário de Almoço",
+        at(0, 12),
+        90,
+        "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+        "Almoço e descanso diário",
+      ),
+      block(
+        "study",
+        viviId,
+        "Atualização e Estudos",
+        at(0, 18),
+        90,
+        "FREQ=WEEKLY;BYDAY=FR",
+        "Estudos de biomecânica",
+      ),
+      block(
+        "congress",
+        viviId,
+        "Congresso de Educação Física",
+        at(10, 8),
+        600,
+        null,
+        "Dia inteiro fora.",
+      ),
+    ],
+  });
+}
 
-  // ──────────────────────────────────────────
-  // 17. Verificação de Cobertura de Todas as 23 Entidades
-  // ──────────────────────────────────────────
-  const counts = {
-    Tenants: await prisma.tenant.count(),
-    Users: await prisma.user.count(),
-    Clients: await prisma.client.count(),
-    Plans: await prisma.plan.count(),
-    SystemFeatures: await prisma.systemFeature.count(),
-    PlanFeatures: await prisma.planFeature.count(),
-    Sessions: await prisma.session.count(),
-    Evaluations: await prisma.evaluation.count(),
-    UserSettings: await prisma.userSetting.count(),
-    RecurringEvents: await prisma.recurringEvent.count(),
-    SessionExceptions: await prisma.sessionException.count(),
-    AvailabilityBlocks: await prisma.availabilityBlock.count(),
-    ManualPayments: await prisma.manualPayment.count(),
-    Anamneses: await prisma.anamnesis.count(),
-    Exercises: await prisma.exercise.count(),
-    WorkoutSheets: await prisma.workoutSheet.count(),
-    WorkoutSheetItems: await prisma.workoutSheetItem.count(),
-    WorkoutBlocks: await prisma.workoutBlock.count(),
-    WorkoutExercises: await prisma.workoutExercise.count(),
-    WorkoutTemplates: await prisma.workoutTemplate.count(),
-    StudentSessions: await prisma.studentSession.count(),
-    NotificationLogs: await prisma.notificationLog.count(),
-    PasswordResetTokens: await prisma.passwordResetToken.count(),
+// ─── 7. Assessments ──────────────────────────────────────────────────────────
+
+async function seedAssessments(viviId: string): Promise<void> {
+  const base = (
+    key: string,
+    client: string,
+    type: AssessmentType,
+    data: object,
+    date: Date,
+  ) => ({
+    id: seedId(`assessment:${key}`),
+    type,
+    userId: viviId,
+    clientId: clientId(client),
+    date,
+    data: toJsonValue(data),
+  });
+  const { ANAMNESIS, PHYSICAL_EVALUATION } = AssessmentType;
+  const parq = {
+    q1: false,
+    q2: false,
+    q3: false,
+    q4: false,
+    q5: false,
+    q6: false,
+    q7: false,
   };
 
-  console.log('\n📊 [Seed] Resumo de registros cadastrados no banco de dados:');
-  console.table(counts);
-
-  const emptyEntities = Object.entries(counts).filter(([_, count]) => count === 0);
-  if (emptyEntities.length > 0) {
-    throw new Error(
-      `❌ [Seed] Falha na cobertura: as seguintes entidades estão vazias: ${emptyEntities.map(([name]) => name).join(', ')}`,
-    );
-  }
-
-  console.log('🎉 [Seed] População de todas as 23 entidades concluída com 100% de cobertura e sucesso!');
+  await prisma.assessment.createMany({
+    data: [
+      // Submitted anamneses: magicToken null. The latest one per client is the current one.
+      base(
+        "anamnesis-ana",
+        "ana",
+        ANAMNESIS,
+        buildAnamnesisData({
+          medicalHistory:
+            "Sem histórico de cirurgias. Pressão arterial normal.",
+          injuriesAndPain: "Nenhuma dor limitante atual.",
+          routineAndSchedule: "Estudante. Disponibilidade no início da manhã.",
+          fitnessGoals:
+            "Emagrecimento saudável e definição de membros inferiores.",
+          experienceLevel: "Intermediário",
+          weightKg: 58.5,
+          parqAnswers: parq,
+          measurements: {
+            waist: 68,
+            hip: 98,
+            chest: 88,
+            rightArm: 26,
+            rightThigh: 54,
+          },
+          frontPhotoUrl: `${CDN}/evaluations/ana-front.png`,
+        }),
+        at(-60, 10),
+      ),
+      base(
+        "anamnesis-adriana",
+        "adriana",
+        ANAMNESIS,
+        buildAnamnesisData({
+          medicalHistory:
+            "Hérnia de disco lombar (L4-L5) diagnosticada em 2022.",
+          injuriesAndPain: "Dor lombar ocasional ao ficar muito tempo sentada.",
+          fitnessGoals: "Emagrecimento e fortalecimento do core.",
+          experienceLevel: "Iniciante",
+          parqAnswers: { ...parq, q5: true },
+        }),
+        at(-45, 14),
+      ),
+      // Pending (link not used yet) and expired requests: data stays { version: 1 }.
+      {
+        ...base(
+          "anamnesis-fernanda-pending",
+          "fernanda",
+          ANAMNESIS,
+          EMPTY_ANAMNESIS_DATA,
+          at(-1, 9),
+        ),
+        magicToken: buildIdempotencyKey([
+          "seed",
+          "anamnesis",
+          "fernanda",
+        ]).padEnd(64, "0"),
+        tokenExpiresAt: at(6, 9),
+      },
+      {
+        ...base(
+          "anamnesis-rodrigo-expired",
+          "rodrigo",
+          ANAMNESIS,
+          EMPTY_ANAMNESIS_DATA,
+          at(-20, 9),
+        ),
+        magicToken: buildIdempotencyKey([
+          "seed",
+          "anamnesis",
+          "rodrigo",
+        ]).padEnd(64, "0"),
+        tokenExpiresAt: at(-13, 9),
+      },
+      // Physical evaluations: `date` is the evaluation date; a numeric weight is mandatory.
+      base(
+        "evaluation-ana-1",
+        "ana",
+        PHYSICAL_EVALUATION,
+        buildPhysicalEvaluationData({
+          weight: 58.5,
+          notes: "Anamnese inicial preenchida pelo aluno",
+          perimeters: {
+            waist: 68,
+            hip: 98,
+            chest: 88,
+            rightArm: 26,
+            rightThigh: 54,
+          },
+        }),
+        at(-60, 10),
+      ),
+      base(
+        "evaluation-ana-2",
+        "ana",
+        PHYSICAL_EVALUATION,
+        buildPhysicalEvaluationData({
+          weight: 57.2,
+          height: 1.65,
+          bodyFatPercentage: 23.4,
+          leanMass: 43.8,
+          fatMass: 13.4,
+          bodyDensity: 1.0462,
+          protocol: "POLLOCK_3",
+          equation: "SIRI",
+          notes: "Boa evolução em 60 dias.",
+          skinfolds: { triceps: 16, suprailiac: 14, thigh: 22 },
+          perimeters: { waist: 66, hip: 97 },
+        }),
+        at(-3, 10),
+      ),
+      base(
+        "evaluation-juliana",
+        "juliana",
+        PHYSICAL_EVALUATION,
+        buildPhysicalEvaluationData({ weight: 63, height: 1.7 }),
+        at(-15, 16),
+      ),
+    ],
+  });
 }
 
-main()
-  .catch((e) => {
-    console.error('❌ [Seed] Erro durante o seed:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-    await pool.end();
+// ─── 8. Notification audit trail ─────────────────────────────────────────────
+
+async function seedNotificationLogs(viviId: string): Promise<void> {
+  // Finished outcomes only (SENT / FAILED / CANCELLED), WhatsApp only, one distinct jobId per row.
+  const log = (
+    n: number,
+    client: string,
+    phone: string,
+    templateType: string,
+    status: "SENT" | "FAILED" | "CANCELLED",
+    error: string | null,
+    daysAgo: number,
+  ) => ({
+    id: seedId(`notification:${n}`),
+    userId: viviId,
+    clientId: clientId(client),
+    recipientPhone: phone,
+    templateType,
+    status,
+    channel: "WHATSAPP",
+    error,
+    jobId: buildIdempotencyKey(["seed", String(n)]),
+    createdAt: at(-daysAgo, 11),
   });
+  await prisma.notificationLog.createMany({
+    data: [
+      log(1, "ana", "+5551991849376", "WELCOME_ANAMNESIS", "SENT", null, 60),
+      log(
+        2,
+        "adriana",
+        "+5551992641343",
+        "WELCOME_ANAMNESIS",
+        "SENT",
+        null,
+        45,
+      ),
+      log(3, "leticia", "+5551993322110", "WORKOUT_LINK", "SENT", null, 7),
+      log(
+        4,
+        "rodrigo",
+        "+5551991100998",
+        "WELCOME_ANAMNESIS",
+        "FAILED",
+        "WHATSAPP_NOT_CONNECTED: WhatsApp do treinador não está conectado (status DISCONNECTED).",
+        20,
+      ),
+      log(
+        5,
+        "mariana",
+        "+5551992211009",
+        "EXPIRATION_ALERT",
+        "FAILED",
+        "WHATSAPP_TRANSIENT (HTTP 503): upstream unavailable",
+        4,
+      ),
+      log(
+        6,
+        "fernanda",
+        "+5551986655443",
+        "WELCOME_ANAMNESIS",
+        "CANCELLED",
+        "Cancelado manualmente pelo treinador.",
+        1,
+      ),
+    ],
+  });
+}
+
+// ─── Run ─────────────────────────────────────────────────────────────────────
+
+/**
+ * @param env Environment the guards read (injected in tests)
+ * @param connect Opens the database; called only after every guard has passed
+ * @throws {Error} In production without SEED_ALLOW_PRODUCTION=true or without
+ *   SEED_ADMIN_PASSWORD, and without DATABASE_URL — all before connecting
+ */
+export async function main(
+  env: ScriptEnv = process.env,
+  connect: (databaseUrl: string) => SeedConnection = connectTo,
+): Promise<void> {
+  assertSeedAllowed(env);
+  const password = resolveSeedPassword(env);
+  if (!env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required to seed.");
+  }
+  const connection = connect(env.DATABASE_URL);
+  prisma = connection.prisma;
+  try {
+    await seed(password);
+  } finally {
+    await connection.close();
+  }
+}
+
+async function seed(password: string): Promise<void> {
+  console.log("[seed] accounts");
+  const users = await seedAccounts(password);
+  const viviId = users.get("vivi-personal") as string;
+  const carlosId = users.get("elite-fit-studio") as string;
+
+  console.log("[seed] clearing data owned by the demo accounts");
+  await clearOwnedData([...users.values()]);
+
+  console.log("[seed] exercises, plans, clients, payments");
+  await seedExercises(viviId, carlosId);
+  const plans = await seedPlans(viviId, carlosId);
+  await seedClients(viviId, VIVI_CLIENTS, plans);
+  await seedClients(carlosId, CARLOS_CLIENTS, plans);
+
+  console.log("[seed] sheets, calendar, assessments, notification logs");
+  await seedSheets(viviId, carlosId);
+  await seedCalendar(viviId, carlosId);
+  await seedAssessments(viviId);
+  await seedNotificationLogs(viviId);
+
+  const counts = {
+    users: await prisma.user.count(),
+    clients: await prisma.client.count(),
+    plans: await prisma.plan.count(),
+    payments: await prisma.payment.count(),
+    exercises: await prisma.exercise.count(),
+    workoutSheets: await prisma.workoutSheet.count(),
+    studentSessions: await prisma.studentSession.count(),
+    events: await prisma.event.count(),
+    assessments: await prisma.assessment.count(),
+    notificationLogs: await prisma.notificationLog.count(),
+  };
+  console.log(`[seed] done ${JSON.stringify(counts)}`);
+  // Never print a password that came from the environment.
+  const passwordHint =
+    password === DEMO_PASSWORD
+      ? `password "${DEMO_PASSWORD}"`
+      : "password from SEED_ADMIN_PASSWORD";
+  console.log(
+    `[seed] login: admin@gym.com (admin) or carlos@elitefit.com (trainer), ${passwordHint} for accounts created by this run (existing accounts keep theirs)`,
+  );
+}
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error("[seed] failed:", error);
+    process.exitCode = 1;
+  });
+}

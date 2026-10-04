@@ -1,37 +1,67 @@
-import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
+/**
+ * Empties every table of the `public` schema (migration history is kept).
+ * Development only: refuses to run with NODE_ENV=production, with no override.
+ *
+ * Run: npm run db:reset   (DATABASE_URL must point at the target database)
+ */
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
+import { assertResetAllowed, ScriptEnv } from "./seed-guard";
 
-async function resetDatabase() {
-  console.log('🗑️  Zerando o banco de dados...');
+export interface ResetConnection {
+  prisma: Pick<PrismaClient, "$queryRaw" | "$executeRawUnsafe">;
+  close: () => Promise<void>;
+}
 
+function connectTo(databaseUrl: string): ResetConnection {
+  const pool = new Pool({ connectionString: databaseUrl });
+  const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
+  return {
+    prisma,
+    close: async () => {
+      await prisma.$disconnect();
+      await pool.end();
+    },
+  };
+}
+
+/**
+ * @throws {Error} In production, or without DATABASE_URL — both before connecting
+ */
+export async function resetDatabase(
+  env: ScriptEnv = process.env,
+  connect: (databaseUrl: string) => ResetConnection = connectTo,
+): Promise<void> {
+  assertResetAllowed(env);
+  if (!env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required to reset.");
+  }
+  const { prisma, close } = connect(env.DATABASE_URL);
   try {
-    // Busca todas as tabelas no schema public
-    const tablenames = await prisma.$queryRaw<
+    console.log("[reset] truncating every table of schema public");
+    const rows = await prisma.$queryRaw<
       Array<{ tablename: string }>
     >`SELECT tablename FROM pg_tables WHERE schemaname='public'`;
-
-    const tables = tablenames
+    const tables = rows
       .map(({ tablename }) => tablename)
-      .filter((name) => name !== '_prisma_migrations'); // Não apagar histórico de migrações
+      .filter((name) => name !== "_prisma_migrations");
 
     for (const table of tables) {
-      // "TRUNCATE ... CASCADE" limpa a tabela e todas as dependências de FK
+      // CASCADE also empties the tables that reference this one.
       await prisma.$executeRawUnsafe(`TRUNCATE TABLE "${table}" CASCADE;`);
-      console.log(`   - Tabela "${table}" limpa.`);
+      console.log(`[reset] "${table}" truncated`);
     }
-
-    console.log('✅ Banco de dados zerado com sucesso!');
-  } catch (error) {
-    console.error('❌ Erro ao zerar banco:', error);
-    process.exit(1);
+    console.log("[reset] done");
   } finally {
-    await prisma.$disconnect();
+    await close();
   }
 }
 
-resetDatabase();
+if (require.main === module) {
+  resetDatabase().catch((error) => {
+    console.error("[reset] failed:", error);
+    process.exitCode = 1;
+  });
+}
