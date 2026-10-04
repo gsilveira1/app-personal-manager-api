@@ -1,5 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import * as nodemailer from "nodemailer";
+import { escapeHtml } from "./escape-html";
+import { buildSmtpOptions } from "./smtp-options";
 
 export interface SendMailOptions {
   to: string;
@@ -14,15 +16,9 @@ export class MailerService {
   private transporter: nodemailer.Transporter;
 
   constructor() {
-    const host = process.env.EMAIL_SMTP_HOST || "localhost";
-    const port = Number(process.env.EMAIL_SMTP_PORT) || 1025;
-
-    this.transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: false,
-      ignoreTLS: true,
-    });
+    this.transporter = nodemailer.createTransport(
+      buildSmtpOptions(process.env),
+    );
   }
 
   async sendMail(options: SendMailOptions): Promise<{ messageId: string }> {
@@ -59,7 +55,10 @@ export class MailerService {
       process.env.FRONTEND_URL ||
       process.env.APP_CLIENT_URL ||
       "http://localhost:5173";
-    const resetUrl = `${baseUrl}/#/reset-password?token=${token}`;
+    const resetUrl = `${baseUrl}/#/reset-password?token=${encodeURIComponent(token)}`;
+    // Everything interpolated into the HTML part is escaped; the text part is not HTML.
+    const safeName = escapeHtml(name || "Personal");
+    const safeUrl = escapeHtml(resetUrl);
 
     const html = `
 <!DOCTYPE html>
@@ -84,7 +83,7 @@ export class MailerService {
           <!-- Body -->
           <tr>
             <td style="padding: 32px;">
-              <h2 style="color: #0f172a; font-size: 20px; font-weight: 600; margin: 0 0 16px 0;">Olá, ${name || "Personal"}!</h2>
+              <h2 style="color: #0f172a; font-size: 20px; font-weight: 600; margin: 0 0 16px 0;">Olá, ${safeName}!</h2>
               <p style="color: #475569; font-size: 15px; line-height: 1.6; margin: 0 0 24px 0;">
                 Recebemos uma solicitação para redefinir a senha da sua conta no <strong>viviOps</strong>. Se você realizou essa solicitação, clique no botão abaixo para cadastrar uma nova senha:
               </p>
@@ -92,7 +91,7 @@ export class MailerService {
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 28px 0;">
                 <tr>
                   <td align="center">
-                    <a href="${resetUrl}" target="_blank" style="background-color: #10b981; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.25);">
+                    <a href="${safeUrl}" target="_blank" style="background-color: #10b981; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; display: inline-block; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.25);">
                       Redefinir Minha Senha
                     </a>
                   </td>
@@ -107,7 +106,7 @@ export class MailerService {
               <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 28px 0 20px 0;" />
               <p style="color: #94a3b8; font-size: 12px; line-height: 1.5; margin: 0; word-break: break-all;">
                 Se o botão não funcionar, copie e cole o seguinte link no seu navegador:<br />
-                <a href="${resetUrl}" style="color: #10b981; text-decoration: underline;">${resetUrl}</a>
+                <a href="${safeUrl}" style="color: #10b981; text-decoration: underline;">${safeUrl}</a>
               </p>
             </td>
           </tr>
